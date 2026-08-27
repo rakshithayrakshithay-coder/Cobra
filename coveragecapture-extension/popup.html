@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>CoverageCapture</title>
+  <style>
+    body {
+      width: 320px;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      padding: 16px;
+      color: #1a1a2e;
+    }
+    h2 {
+      font-size: 15px;
+      margin: 0 0 12px;
+      color: #c8102e;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      margin-top: 10px;
+    }
+    input, select, textarea {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 13px;
+      font-family: inherit;
+      box-sizing: border-box;
+    }
+    textarea { resize: vertical; min-height: 50px; }
+    .note {
+      margin-top: 4px;
+      font-size: 11px;
+      color: #4b5563;
+    }
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    button {
+      flex: 1;
+      padding: 8px;
+      border: none;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    #startBtn { background: #16a34a; color: white; }
+    #startBtn:disabled { background: #9ca3af; cursor: not-allowed; }
+    #stopBtn { background: #c8102e; color: white; }
+    #stopBtn:disabled { background: #9ca3af; cursor: not-allowed; }
+    #historyBtn {
+      width: 100%;
+      margin-top: 8px;
+      background: #0a1f44;
+      color: white;
+    }
+    #status {
+      margin-top: 10px;
+      font-size: 12px;
+      padding: 6px 8px;
+      border-radius: 4px;
+      display: none;
+    }
+    #status.recording { display: block; background: #fef3c7; color: #92400e; }
+    #status.done { display: block; background: #dcfce7; color: #166534; }
+    #status.error { display: block; background: #fee2e2; color: #991b1b; }
+    #results {
+      margin-top: 12px;
+      max-height: 220px;
+      overflow-y: auto;
+      font-size: 11px;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 8px;
+      display: none;
+    }
+    #results.show { display: block; }
+    .result-item {
+      padding: 9px 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 4px;
+      background: #fff;
+      word-break: break-word;
+    }
+    .action-row { margin-bottom: 8px; }
+    .action-heading { color: #0a1f44; font-weight: 700; }
+    .action-list { margin: 6px 0 0; padding-left: 20px; color: #334155; }
+    .action-list li + li { margin-top: 3px; }
+    .result-heading {
+      margin: 0;
+      color: #0a1f44;
+      font-size: 13px;
+    }
+    .result-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .close-results {
+      flex: 0 0 auto;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border: 1px solid #cbd5e1;
+      border-radius: 50%;
+      background: #fff;
+      color: #475569;
+      font-size: 17px;
+      font-weight: 400;
+      line-height: 1;
+    }
+    .close-results:hover,
+    .close-results:focus-visible {
+      border-color: #c8102e;
+      color: #c8102e;
+      outline: none;
+    }
+    .file-row {
+      display: grid;
+      gap: 5px;
+      margin-bottom: 8px;
+    }
+    .file-url {
+      color: #0a1f44;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+    .coverage-metrics {
+      color: #334155;
+      font-weight: 700;
+    }
+    .function-list {
+      display: grid;
+      gap: 4px;
+      margin-top: 4px;
+      padding-top: 8px;
+      border-top: 1px solid #e5e7eb;
+    }
+    .function-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: #166534;
+    }
+    .function-name { overflow-wrap: anywhere; }
+    .function-location { color: #64748b; white-space: nowrap; }
+    body.detached-view {
+      width: auto;
+      min-height: 100vh;
+      margin: 0;
+      padding: 36px;
+      box-sizing: border-box;
+    }
+    body.detached-view h2,
+    body.detached-view label,
+    body.detached-view input,
+    body.detached-view textarea,
+    body.detached-view .note,
+    body.detached-view .btn-row,
+    body.detached-view #historyBtn,
+    body.detached-view #status,
+    body.detached-view #results {
+      max-width: 720px;
+    }
+    body.detached-view #results {
+      max-height: calc(100vh - 430px);
+    }
+  </style>
+</head>
+<body>
+  <h2>CoverageCapture</h2>
+
+  <label for="testName">Test Scenario</label>
+  <input id="testName" type="text" placeholder="For example: Admin can log in and view claims">
+  <div class="note">Start recording, perform the test manually in this tab, then click Stop.</div>
+
+  <label for="testDescription">Test Description</label>
+  <textarea id="testDescription" placeholder="Add any details about this scenario"></textarea>
+
+  <label for="testSuite">Test Suite <span class="note">(optional)</span></label>
+  <select id="testSuite">
+    <option value="Manual">Manual</option>
+    <option value="Smoke">Smoke</option>
+    <option value="Regression">Regression</option>
+    <option value="Sanity">Sanity</option>
+  </select>
+
+  <label for="environment">Environment <span class="note">(optional)</span></label>
+  <select id="environment">
+    <option value="Unspecified">Unspecified</option>
+    <option value="Development">Development</option>
+    <option value="QA">QA</option>
+    <option value="UAT">UAT</option>
+    <option value="Production">Production</option>
+  </select>
+
+  <label for="buildVersion">Build Version <span class="note">(optional)</span></label>
+  <input id="buildVersion" type="text" placeholder="For example: v1.0.0 or commit ID">
+
+  <div class="btn-row">
+    <button id="startBtn">Start</button>
+    <button id="stopBtn" disabled>Stop</button>
+  </div>
+  <button id="historyBtn">View Full History</button>
+  <div id="status"></div>
+  <div id="results"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "CoverageCapture",
+  "version": "1.0.0",
+  "description": "Manual V8 JavaScript coverage capture per test using Chrome DevTools Protocol.",
+  "permissions": ["debugger", "activeTab", "storage", "scripting", "windows"],
+  "host_permissions": ["<all_urls>", "http://localhost:4000/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "CoverageCapture"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

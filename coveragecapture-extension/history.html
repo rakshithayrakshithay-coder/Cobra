@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>CoverageCapture - Test History</title>
+  <style>
+    :root {
+      --navy: #0a1f44;
+      --red: #c8102e;
+      --ink: #1a1a2e;
+      --muted: #64748b;
+      --line: #e5e7eb;
+      --surface: #ffffff;
+      --soft: #f8fafc;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-width: 760px;
+      background: #f3f6fb;
+      color: var(--ink);
+      font-family: 'Segoe UI', Arial, sans-serif;
+    }
+
+    header {
+      background: var(--navy);
+      color: white;
+      padding: 22px 32px;
+      border-bottom: 4px solid var(--red);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 24px 32px 40px;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .search-wrap {
+      flex: 1 1 260px;
+      min-width: 260px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--navy);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    input {
+      width: 100%;
+      min-height: 38px;
+      padding: 8px 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      color: var(--ink);
+      font: inherit;
+      font-size: 14px;
+      background: white;
+    }
+
+    input:focus {
+      outline: 2px solid rgba(10, 31, 68, 0.18);
+      border-color: var(--navy);
+    }
+
+    .sort-wrap,
+    .filter-wrap {
+      position: relative;
+      flex: 1 1 190px;
+      min-width: 190px;
+    }
+
+    .sort-wrap::after,
+    .filter-wrap::after {
+      position: absolute;
+      top: calc(50% + 2px);
+      right: 14px;
+      width: 7px;
+      height: 7px;
+      border-right: 2px solid var(--navy);
+      border-bottom: 2px solid var(--navy);
+      content: '';
+      pointer-events: none;
+      transform: translateY(-50%) rotate(45deg);
+    }
+
+    #sortSelect,
+    .filter-select {
+      width: 100%;
+      min-height: 38px;
+      padding: 8px 34px 8px 10px;
+      appearance: none;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      background: var(--surface);
+      color: var(--ink);
+      font: inherit;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    #sortSelect:hover,
+    .filter-select:hover {
+      border-color: var(--navy);
+    }
+
+    #sortSelect:focus,
+    .filter-select:focus {
+      outline: 2px solid rgba(10, 31, 68, 0.18);
+      border-color: var(--navy);
+    }
+
+    .actions {
+      display: flex;
+      flex: 0 0 auto;
+      gap: 8px;
+      align-self: end;
+    }
+
+    button {
+      min-height: 38px;
+      padding: 8px 12px;
+      border: none;
+      border-radius: 4px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    #exportBtn {
+      background: var(--navy);
+      color: white;
+    }
+
+    #clearBtn {
+      background: var(--red);
+      color: white;
+    }
+
+    .summary {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .dashboard-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 0 0 18px; }
+    .dashboard-card { min-height: 124px; padding: 18px; border-radius: 6px; background: var(--surface); border-top: 4px solid var(--navy); box-shadow: 0 5px 16px rgba(10,31,68,.1); }
+    .dashboard-card.clickable { cursor: pointer; }
+    .card-value, .gate-value { color: var(--navy); font-size: 30px; font-weight: 800; line-height: 1; }
+    .gate-value { font-size: 24px; }
+    .card-label { margin-top: 12px; color: var(--navy); font-size: 12px; font-weight: 800; text-transform: uppercase; }
+    .card-note { margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .passing { color: #166534; } .failing { color: var(--red); }
+    .overall-section { margin: 0 0 20px; padding: 18px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); box-shadow: 0 5px 16px rgba(10,31,68,.07); }
+    .section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 6px; color: var(--navy); font-size: 18px; }
+    .section-note { margin: 0 0 14px; color: var(--muted); font-size: 12px; }
+    .overall-file { display: block; margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 4px; }
+    .overall-file summary { display: flex; gap: 12px; align-items: center; color: var(--navy); }
+    .overall-file summary span:first-child { flex: 1; overflow-wrap: anywhere; }
+    .badge { padding: 3px 7px; border-radius: 999px; font-size: 11px; font-weight: 800; color: #fff; }
+    .badge.passing { background: #16803a; color: #fff; } .badge.failing { background: var(--red); color: #fff; }
+
+    .table-wrap {
+      overflow-x: auto;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(10, 31, 68, 0.08);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      font-size: 13px;
+    }
+
+    th {
+      background: #eef3f9;
+      color: var(--navy);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .test-name {
+      color: var(--navy);
+      font-weight: 700;
+    }
+
+    .delete-test-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 28px;
+      min-height: 28px;
+      padding: 4px;
+      border: 1px solid #fecaca;
+      border-radius: 4px;
+      background: #fff1f2;
+      color: var(--red);
+      line-height: 1;
+    }
+
+    .delete-test-btn svg {
+      width: 15px;
+      height: 15px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 2;
+    }
+
+    .row-actions {
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .delete-test-btn:hover,
+    .delete-test-btn:focus-visible {
+      background: #fee2e2;
+      outline: 2px solid rgba(200, 16, 46, 0.2);
+      outline-offset: 1px;
+    }
+
+    .description {
+      max-width: 360px;
+      color: #334155;
+      overflow-wrap: anywhere;
+    }
+
+    .date,
+    .duration {
+      white-space: nowrap;
+    }
+
+    .details-cell {
+      background: var(--soft);
+      padding: 0;
+    }
+
+    details {
+      padding: 10px 14px 12px;
+    }
+
+    summary {
+      color: var(--red);
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .file-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .recorded-steps {
+      padding: 10px;
+      border: 1px solid #dbe5f0;
+      border-radius: 4px;
+      background: #fff;
+      color: #334155;
+    }
+    .recorded-steps strong { color: var(--navy); }
+    .recorded-steps ol { margin: 7px 0 0; padding-left: 22px; }
+    .recorded-steps li + li { margin-top: 4px; }
+
+    .file-row {
+      display: grid;
+      grid-template-columns: minmax(240px, 1fr) 170px 80px;
+      gap: 12px;
+      align-items: center;
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: white;
+      font-size: 12px;
+    }
+
+    .file-url {
+      color: var(--navy);
+      overflow-wrap: anywhere;
+    }
+
+    .coverage-count,
+    .coverage-percent {
+      color: #334155;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .function-list {
+      grid-column: 1 / -1;
+      display: grid;
+      gap: 4px;
+      max-height: 200px;
+      margin-top: 4px;
+      padding: 8px;
+      overflow-y: auto;
+      border-top: 1px solid var(--line);
+      font-size: 11px;
+    }
+
+    .function-columns {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .function-column {
+      min-width: 0;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: white;
+    }
+
+    .function-column-heading {
+      margin-bottom: 6px;
+      font-weight: 800;
+    }
+
+    .function-column-entries {
+      display: grid;
+      gap: 4px;
+    }
+
+    .function-item {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) auto;
+      gap: 6px;
+      align-items: start;
+      line-height: 1.35;
+    }
+
+    .function-name {
+      overflow-wrap: anywhere;
+    }
+
+    .function-location {
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .function-covered {
+      color: #166534;
+    }
+
+    .function-uncovered {
+      color: #7f1d1d;
+    }
+
+    .function-uncovered .function-name {
+      color: #64748b;
+    }
+
+    .coverage-bar { display: inline-block; width: 100px; height: 7px; margin-right: 8px; overflow: hidden; vertical-align: middle; background: #e2e8f0; border-radius: 999px; }
+    .coverage-fill { display: block; height: 100%; border-radius: inherit; } .coverage-fill.good { background: #16803a; } .coverage-fill.warning { background: #d97706; } .coverage-fill.poor { background: var(--red); }
+    .row-coverage { white-space: nowrap; color: #334155; font-weight: 700; }
+
+    .empty {
+      padding: 28px;
+      color: var(--muted);
+      text-align: center;
+      font-size: 14px;
+    }
+
+    @media (max-width: 820px) {
+      body {
+        min-width: 0;
+      }
+
+      header,
+      main {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+
+      .toolbar {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .actions {
+        align-self: stretch;
+      }
+
+      .sort-wrap {
+        flex-basis: auto;
+      }
+
+      .filter-wrap {
+        flex-basis: auto;
+      }
+
+      .actions button {
+        flex: 1;
+      }
+
+      .file-row {
+        grid-template-columns: 1fr;
+        gap: 4px;
+      }
+      .dashboard-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    /* Coverage dashboard refresh */
+    main { max-width: 1240px; padding: 30px 38px 44px; }
+    .toolbar { align-items: flex-end; gap: 10px; margin-bottom: 20px; }
+    label { margin-bottom: 7px; }
+    input { min-height: 40px; padding: 9px 12px; border-radius: 5px; }
+    #sortSelect, .filter-select { min-height: 40px; padding: 9px 36px 9px 12px; border-radius: 5px; }
+    .actions { gap: 10px; }
+    button { min-height: 40px; padding: 9px 14px; border-radius: 5px; }
+    .dashboard-shell { overflow: hidden; margin-bottom: 22px; border: 1px solid #e8edf4; border-radius: 8px; background: var(--surface); box-shadow: 0 10px 30px rgba(10, 31, 68, .08); }
+    .dashboard-overview { padding: 20px; }
+    .dashboard-grid { gap: 14px; margin: 0 0 13px; }
+    .dashboard-card { min-height: 126px; padding: 20px 16px; border: 1px solid #edf0f4; border-top: 4px solid var(--navy); border-radius: 7px; box-shadow: 0 6px 18px rgba(10,31,68,.06); }
+    .dashboard-card.risk-card { border-top-color: var(--red); }
+    .card-note { margin-top: 5px; }
+    .coverage-tabs { display: inline-flex; gap: 0; margin-top: 14px; overflow: hidden; border: 1px solid #d9e2ee; border-radius: 6px; }
+    .coverage-tab { min-height: 40px; padding: 8px 18px; border: 0; border-radius: 0; background: #fff; color: var(--navy); font-size: 12px; }
+    .coverage-tab + .coverage-tab { border-left: 1px solid #d9e2ee; }
+    .coverage-tab[aria-selected="true"] { background: var(--navy); color: #fff; }
+    .coverage-list { padding: 42px 50px; border-top: 1px solid #e8edf4; background: #fff; }
+    .overall-file { margin-top: 8px; padding: 12px; border-color: #e8edf4; border-radius: 5px; background: #fff; }
+    .overall-file summary { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 20px; align-items: center; }
+    .untested-file { margin-top: 0; padding: 10px 0; border: 0; border-radius: 0; background: transparent; }
+    .untested-file summary { display: list-item; color: var(--red); font-weight: 700; }
+    .badge { padding: 4px 10px; }
+    .badge.passing { background: #dcfce7; color: #166534; }
+    .badge.failing { background: #fee2e2; color: var(--red); }
+    .table-wrap { border-radius: 8px; }
+    @media (max-width: 820px) {
+      main { padding: 22px 16px 32px; }
+      .overall-file summary { grid-template-columns: 1fr auto; gap: 8px 12px; }
+      .coverage-list { padding: 28px 22px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="toolbar">
+      <div class="search-wrap">
+        <label for="searchInput">Filter by Test Scenario</label>
+        <input type="search" id="searchInput" placeholder="Search test scenarios">
+      </div>
+      <div class="sort-wrap">
+        <label for="sortSelect">Sort by</label>
+        <select id="sortSelect">
+          <option value="date-desc">Date (Newest first)</option>
+          <option value="date-asc">Date (Oldest first)</option>
+          <option value="duration-desc">Duration (Longest first)</option>
+          <option value="duration-asc">Duration (Shortest first)</option>
+          <option value="coverage-desc">Coverage % (Highest first)</option>
+          <option value="coverage-asc">Coverage % (Lowest first)</option>
+        </select>
+      </div>
+      <div class="filter-wrap">
+        <label for="testSuiteFilter">Test Suite</label>
+        <select id="testSuiteFilter" class="filter-select">
+          <option value="">All test suites</option>
+        </select>
+      </div>
+      <div class="filter-wrap">
+        <label for="environmentFilter">Environment</label>
+        <select id="environmentFilter" class="filter-select">
+          <option value="">All environments</option>
+        </select>
+      </div>
+      <div class="filter-wrap">
+        <label for="buildVersionFilter">Build Version</label>
+        <select id="buildVersionFilter" class="filter-select">
+          <option value="">All builds</option>
+        </select>
+      </div>
+      <div class="actions">
+        <button id="exportBtn">Export as PDF</button>
+        <button id="clearBtn">Clear All History</button>
+      </div>
+    </div>
+
+    <section class="dashboard-shell" aria-label="Coverage Dashboard">
+      <div class="dashboard-overview">
+        <div class="dashboard-grid" id="dashboardCards"></div>
+        <p class="section-note">Based on functions observed across all captured test runs so far — not a full static analysis of the entire codebase.</p>
+        <div class="coverage-tabs" role="tablist" aria-label="Coverage view">
+          <button id="viewOverallBtn" class="coverage-tab" type="button" role="tab" aria-selected="true" aria-controls="overallFiles">Overall Coverage</button>
+        </div>
+      </div>
+      <div class="coverage-list">
+        <div id="overallFiles" role="tabpanel" aria-labelledby="viewOverallBtn"></div>
+      </div>
+    </section>
+
+    <p class="summary" id="summaryText"></p>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Test Scenario</th>
+            <th>Description</th>
+            <th>Suite</th>
+            <th>Environment</th>
+            <th>Build</th>
+            <th>Started At</th>
+            <th>Stopped At</th>
+            <th>Duration</th>
+            <th>Coverage</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+      <div class="empty" id="emptyState">No coverage history found.</div>
+    </div>
+  </main>
+
+  <script src="history.js"></script>
+</body>
+</html>
