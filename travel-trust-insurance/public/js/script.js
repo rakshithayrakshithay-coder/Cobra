@@ -455,6 +455,10 @@ const initializePageInteractions = function initializePageInteractions() {
     return String(message || '').trim().length;
   }
 
+  function isContactMessageNearLimit(charactersRemaining) {
+    return charactersRemaining <= 50;
+  }
+
   function updateContactMessageHint() {
     if (!contactMessageInput || !contactMessageHint) return;
     const characterCount = getContactMessageCount(contactMessageInput.value);
@@ -462,7 +466,7 @@ const initializePageInteractions = function initializePageInteractions() {
     const charactersRemaining = characterLimit - characterCount;
 
     contactMessageHint.textContent = `${charactersRemaining} characters remaining`;
-    contactMessageHint.classList.toggle('form-helper-warning', charactersRemaining <= 50);
+    contactMessageHint.classList.toggle('form-helper-warning', isContactMessageNearLimit(charactersRemaining));
   }
 
   if (contactMessageInput && contactMessageHint) {
