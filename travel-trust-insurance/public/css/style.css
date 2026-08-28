@@ -984,6 +984,13 @@ img { max-width: 100%; height: auto; }
 
 .form-group textarea { resize: vertical; min-height: 100px; }
 
+.form-helper {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 12px;
+  text-align: right;
+}
+
 .required { color: #C8102E; }
 
 .form-row.two-cols {

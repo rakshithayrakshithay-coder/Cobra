@@ -446,6 +446,27 @@ const initializePageInteractions = function initializePageInteractions() {
   }
 
   // ==========================================
+  // CONTACT MESSAGE CHARACTER COUNTER
+  // ==========================================
+  const contactMessageInput = document.getElementById('contactMessage');
+  const contactMessageHint = document.getElementById('contactMessageHint');
+
+  function getContactMessageCount(message) {
+    return String(message || '').trim().length;
+  }
+
+  function updateContactMessageHint() {
+    if (!contactMessageInput || !contactMessageHint) return;
+    const characterCount = getContactMessageCount(contactMessageInput.value);
+    contactMessageHint.textContent = `${characterCount} / 500 characters`;
+  }
+
+  if (contactMessageInput && contactMessageHint) {
+    contactMessageInput.addEventListener('input', updateContactMessageHint);
+    updateContactMessageHint();
+  }
+
+  // ==========================================
   // CLAIM FORM
   // ==========================================
   const claimForm = document.getElementById('claimForm');
