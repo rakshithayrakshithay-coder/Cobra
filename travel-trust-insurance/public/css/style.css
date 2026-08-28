@@ -1226,6 +1226,11 @@ img { max-width: 100%; height: auto; }
 
 .contact-info li i { color: #C8102E; width: 16px; }
 
+.form-helper-warning {
+  color: #b54708;
+  font-weight: 600;
+}
+
 .social-links {
   display: flex;
   gap: 12px;
