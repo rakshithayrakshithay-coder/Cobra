@@ -455,10 +455,18 @@ const initializePageInteractions = function initializePageInteractions() {
     return String(message || '').trim().length;
   }
 
+  function isContactMessageNearLimit(charactersRemaining) {
+    return charactersRemaining <= 50;
+  }
+
   function updateContactMessageHint() {
     if (!contactMessageInput || !contactMessageHint) return;
     const characterCount = getContactMessageCount(contactMessageInput.value);
-    contactMessageHint.textContent = `${characterCount} / 500 characters`;
+    const characterLimit = Number(contactMessageInput.maxLength) || 500;
+    const charactersRemaining = characterLimit - characterCount;
+
+    contactMessageHint.textContent = `${charactersRemaining} characters remaining`;
+    contactMessageHint.classList.toggle('form-helper-warning', isContactMessageNearLimit(charactersRemaining));
   }
 
   if (contactMessageInput && contactMessageHint) {
