@@ -1,0 +1,32 @@
+name: Automated Coverage Delta
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  coverage-delta:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: travel-trust-insurance
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: travel-trust-insurance/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run coverage:ci
+      - run: npm run coverage:delta
+        env:
+          BASE_REF: ${{ github.event.before || github.event.pull_request.base.sha || 'HEAD~1' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-delta-${{ github.sha }}
+          path: travel-trust-insurance/coverage-artifacts/
