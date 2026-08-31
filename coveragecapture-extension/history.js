@@ -15,10 +15,15 @@ const emptyState = document.getElementById('emptyState');
 const dashboardCards = document.getElementById('dashboardCards');
 const overallFiles = document.getElementById('overallFiles');
 const viewOverallBtn = document.getElementById('viewOverallBtn');
+const baselineBuildSelect = document.getElementById('baselineBuildSelect');
+const comparisonBuildSelect = document.getElementById('comparisonBuildSelect');
+const deltaResults = document.getElementById('deltaResults');
 
 let coverageHistory = [];
 let selectedSort = 'date-desc';
 let selectedFilters = { testSuite: '', environment: '', buildVersion: '' };
+let selectedBaselineBuild = '';
+let selectedComparisonBuild = '';
 const historySiteOrigin = new URLSearchParams(window.location.search).get('origin');
 
 function getSiteHistory() {
@@ -58,6 +63,16 @@ function getFilteredHistory(records = getSiteHistory()) {
       && (!selectedFilters.testSuite || metadata.testSuite === selectedFilters.testSuite)
       && (!selectedFilters.environment || metadata.environment === selectedFilters.environment)
       && (!selectedFilters.buildVersion || metadata.buildVersion === selectedFilters.buildVersion);
+  });
+}
+
+function getDeltaScopeHistory(records = getSiteHistory()) {
+  const query = searchInput.value.trim().toLowerCase();
+  return records.filter((record) => {
+    const metadata = getRecordMetadata(record);
+    return (!query || (record.testName || '').toLowerCase().includes(query))
+      && (!selectedFilters.testSuite || metadata.testSuite === selectedFilters.testSuite)
+      && (!selectedFilters.environment || metadata.environment === selectedFilters.environment);
   });
 }
 
@@ -169,6 +184,129 @@ function buildCoverage(records) {
     const covered = functions.filter((fn) => fn.covered).length;
     return { ...file, functions, covered, total: functions.length, percent: percentNumber(covered, functions.length) };
   }).sort((a, b) => a.url.localeCompare(b.url));
+}
+
+function getBuildVersions(records) {
+  const latestByBuild = new Map();
+  records.forEach((record) => {
+    const build = getRecordMetadata(record).buildVersion;
+    const timestamp = Date.parse(record.capturedAt || record.stoppedAt || record.startedAt) || 0;
+    latestByBuild.set(build, Math.max(latestByBuild.get(build) || 0, timestamp));
+  });
+  return [...latestByBuild.keys()].sort((first, second) => (latestByBuild.get(second) - latestByBuild.get(first)) || first.localeCompare(second));
+}
+
+function populateDeltaBuildOptions(records) {
+  const builds = getBuildVersions(records);
+  const previousBaseline = selectedBaselineBuild;
+  const previousComparison = selectedComparisonBuild;
+  [baselineBuildSelect, comparisonBuildSelect].forEach((select) => {
+    select.replaceChildren(new Option('Select a build', ''));
+    builds.forEach((build) => select.add(new Option(build, build)));
+    select.disabled = builds.length < 2;
+  });
+  selectedComparisonBuild = builds.includes(previousComparison) ? previousComparison : (builds[0] || '');
+  selectedBaselineBuild = builds.includes(previousBaseline) && previousBaseline !== selectedComparisonBuild
+    ? previousBaseline
+    : (builds.find((build) => build !== selectedComparisonBuild) || '');
+  baselineBuildSelect.value = selectedBaselineBuild;
+  comparisonBuildSelect.value = selectedComparisonBuild;
+}
+
+function functionIdentity(file, fn, index) {
+  const name = String(fn?.name || '(anonymous)').trim();
+  const location = String(fn?.location || '').trim();
+  return `${formatFileUrl(file.url)}\u0000${name}\u0000${location || index}`;
+}
+
+function buildSnapshot(records) {
+  const functions = new Map();
+  records.forEach((record) => (record.files || []).forEach((file) => {
+    (file.functions || []).forEach((fn, index) => {
+      if (!fn) return;
+      const key = functionIdentity(file, fn, index);
+      const existing = functions.get(key);
+      functions.set(key, {
+        key,
+        file: formatFileUrl(file.url),
+        name: fn.name || '(anonymous)',
+        location: fn.location || '',
+        covered: Boolean(existing?.covered || fn.covered),
+      });
+    });
+  }));
+  const entries = [...functions.values()];
+  return { functions, total: entries.length, covered: entries.filter((fn) => fn.covered).length };
+}
+
+function getCoverageDelta(records) {
+  const baselineRecords = records.filter((record) => getRecordMetadata(record).buildVersion === selectedBaselineBuild);
+  const comparisonRecords = records.filter((record) => getRecordMetadata(record).buildVersion === selectedComparisonBuild);
+  const baseline = buildSnapshot(baselineRecords);
+  const comparison = buildSnapshot(comparisonRecords);
+  const added = [...comparison.functions.values()].filter((fn) => !baseline.functions.has(fn.key));
+  const removed = [...baseline.functions.values()].filter((fn) => !comparison.functions.has(fn.key));
+  const newlyCoveredExisting = [...comparison.functions.values()].filter((fn) => baseline.functions.has(fn.key) && fn.covered && !baseline.functions.get(fn.key).covered);
+  return {
+    baseline, comparison, added, removed, newlyCoveredExisting,
+    addedCovered: added.filter((fn) => fn.covered),
+    addedUntested: added.filter((fn) => !fn.covered),
+  };
+}
+
+function renderDeltaFunctionList(functions) {
+  const list = document.createElement('div');
+  list.className = 'delta-files';
+  const byFile = new Map();
+  functions.forEach((fn) => {
+    if (!byFile.has(fn.file)) byFile.set(fn.file, []);
+    byFile.get(fn.file).push(fn);
+  });
+  [...byFile.entries()].sort(([first], [second]) => first.localeCompare(second)).forEach(([file, entries]) => {
+    const details = document.createElement('details'); details.className = 'delta-file';
+    const summary = document.createElement('summary'); summary.textContent = `${file} (${entries.length})`;
+    const content = document.createElement('div');
+    entries.sort((first, second) => first.name.localeCompare(second.name)).forEach((fn) => {
+      const item = document.createElement('div'); item.className = 'delta-function';
+      item.textContent = `${fn.covered ? 'Executed' : 'Untested'} — ${fn.name}${fn.location ? ` (${fn.location})` : ''}`;
+      content.appendChild(item);
+    });
+    details.append(summary, content); list.appendChild(details);
+  });
+  return list;
+}
+
+function renderCoverageDelta(records = getDeltaScopeHistory()) {
+  deltaResults.replaceChildren();
+  if (!selectedBaselineBuild || !selectedComparisonBuild || selectedBaselineBuild === selectedComparisonBuild) {
+    deltaResults.textContent = 'Select two different build versions to view the coverage delta.';
+    deltaResults.className = 'delta-note';
+    return;
+  }
+  const delta = getCoverageDelta(records);
+  const baselinePercent = percentNumber(delta.baseline.covered, delta.baseline.total);
+  const comparisonPercent = percentNumber(delta.comparison.covered, delta.comparison.total);
+  const metrics = [
+    [`${comparisonPercent - baselinePercent >= 0 ? '+' : ''}${comparisonPercent - baselinePercent}%`, 'Coverage change'],
+    [delta.added.length, 'Functions added'],
+    [delta.addedCovered.length, 'New functions executed'],
+    [delta.addedUntested.length, 'New functions untested'],
+  ];
+  const summary = document.createElement('div'); summary.className = 'delta-summary';
+  metrics.forEach(([value, label]) => {
+    const metric = document.createElement('div'); metric.className = 'delta-metric';
+    const big = document.createElement('div'); big.className = 'delta-value'; big.textContent = value;
+    const title = document.createElement('div'); title.className = 'delta-label'; title.textContent = label;
+    metric.append(big, title); summary.appendChild(metric);
+  });
+  const note = document.createElement('p'); note.className = 'delta-note';
+  note.textContent = `${selectedBaselineBuild}: ${baselinePercent}% (${delta.baseline.covered}/${delta.baseline.total}) → ${selectedComparisonBuild}: ${comparisonPercent}% (${delta.comparison.covered}/${delta.comparison.total}). ${delta.newlyCoveredExisting.length} existing functions became covered; ${delta.removed.length} functions are not present in the comparison build.`;
+  deltaResults.className = '';
+  deltaResults.append(summary, note);
+  if (delta.addedUntested.length) {
+    const heading = document.createElement('p'); heading.className = 'delta-note'; heading.textContent = 'New untested functions';
+    deltaResults.append(heading, renderDeltaFunctionList(delta.addedUntested));
+  }
 }
 
 function createCell(text, className) {
@@ -302,6 +440,7 @@ function createDetailsRow(record) {
 function renderHistory() {
   const siteHistory = getSiteHistory();
   populateFilterOptions(siteHistory);
+  populateDeltaBuildOptions(getDeltaScopeHistory(siteHistory));
   const filtered = getFilteredHistory(siteHistory);
   const sorted = sortHistoryRecords(filtered);
   historyBody.replaceChildren(); emptyState.style.display = sorted.length ? 'none' : 'block'; exportBtn.disabled = !siteHistory.length; clearBtn.disabled = !siteHistory.length;
@@ -337,6 +476,7 @@ function renderHistory() {
     historyBody.append(row, createDetailsRow(record));
   });
   renderDashboard(filtered);
+  renderCoverageDelta(getDeltaScopeHistory(siteHistory));
 }
 
 function showOverall() { renderDashboard(getFilteredHistory()); }
@@ -499,4 +639,6 @@ sortSelect.addEventListener('change', () => { selectedSort = sortSelect.value; r
 testSuiteFilter.addEventListener('change', () => { selectedFilters.testSuite = testSuiteFilter.value; renderHistory(); });
 environmentFilter.addEventListener('change', () => { selectedFilters.environment = environmentFilter.value; renderHistory(); });
 buildVersionFilter.addEventListener('change', () => { selectedFilters.buildVersion = buildVersionFilter.value; renderHistory(); });
+baselineBuildSelect.addEventListener('change', () => { selectedBaselineBuild = baselineBuildSelect.value; renderCoverageDelta(); });
+comparisonBuildSelect.addEventListener('change', () => { selectedComparisonBuild = comparisonBuildSelect.value; renderCoverageDelta(); });
 exportBtn.addEventListener('click', exportHistory); clearBtn.addEventListener('click', clearHistory); viewOverallBtn.addEventListener('click', showOverall); loadHistory();
