@@ -61,6 +61,12 @@
       background: #0a1f44;
       color: white;
     }
+    #deltaBtn {
+      width: 100%;
+      margin-top: 8px;
+      background: #c8102e;
+      color: white;
+    }
     #status {
       margin-top: 10px;
       font-size: 12px;
@@ -202,14 +208,14 @@
     <option value="Production">Production</option>
   </select>
 
-  <label for="buildVersion">Build Version <span class="note">(optional)</span></label>
-  <input id="buildVersion" type="text" placeholder="For example: v1.0.0 or commit ID">
+  <p class="note">Build version is detected from the application automatically.</p>
 
   <div class="btn-row">
     <button id="startBtn">Start</button>
     <button id="stopBtn" disabled>Stop</button>
   </div>
   <button id="historyBtn">View Full History</button>
+  <button id="deltaBtn">Delta Coverage</button>
   <div id="status"></div>
   <div id="results"></div>
 

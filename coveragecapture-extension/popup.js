@@ -2,7 +2,6 @@ const testNameInput = document.getElementById('testName');
 const testDescInput = document.getElementById('testDescription');
 const testSuiteInput = document.getElementById('testSuite');
 const environmentInput = document.getElementById('environment');
-const buildVersionInput = document.getElementById('buildVersion');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
 const statusDiv = document.getElementById('status');
@@ -131,7 +130,6 @@ function setRecordingControls(recording) {
   testDescInput.disabled = recording;
   testSuiteInput.disabled = recording;
   environmentInput.disabled = recording;
-  buildVersionInput.disabled = recording;
 }
 
 function sendRuntimeMessage(message) {
@@ -161,7 +159,6 @@ async function restoreActiveSession() {
   testDescInput.value = status.testDescription || '';
   testSuiteInput.value = status.testSuite || 'Manual';
   environmentInput.value = status.environment || 'Unspecified';
-  buildVersionInput.value = status.buildVersion || '';
   setStatus('Recording coverage — perform your test actions, then click Stop.', 'recording');
 }
 
@@ -176,7 +173,6 @@ startBtn.addEventListener('click', async () => {
   const testDescription = testDescInput.value.trim();
   const testSuite = testSuiteInput.value;
   const environment = environmentInput.value;
-  const buildVersion = buildVersionInput.value.trim();
   if (!testName && !testDescription) return setStatus('Please enter a test scenario or description first.', 'error');
   setRecordingControls(true);
   setStatus('Creating manual recording session...', 'recording');
@@ -184,6 +180,7 @@ startBtn.addEventListener('click', async () => {
     await clearLatestRecord();
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const siteOrigin = getSiteOrigin(tab?.url);
+    const buildVersion = await detectBuildVersion(tab?.id);
     const job = await createManualJob({ testName, testDescription, testSuite, environment, buildVersion, siteOrigin });
     await sendRuntimeMessage({ action: 'startCoverage', tabId: tab?.id, jobId: job.jobId, testName: testName || testDescription, testDescription, testSuite, environment, buildVersion, startedAt: job.startedAt, siteOrigin });
     activeJobId = job.jobId;
@@ -193,6 +190,18 @@ startBtn.addEventListener('click', async () => {
     setStatus(`Could not start manual recording: ${error.message}`, 'error');
   }
 });
+
+async function detectBuildVersion(tabId) {
+  if (!Number.isInteger(tabId)) return 'Unknown build';
+  const [{ result } = {}] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => document.querySelector('meta[name="coveragecapture-build"]')?.content?.trim()
+      || document.documentElement.dataset.buildVersion?.trim()
+      || globalThis.__BUILD_VERSION__?.toString().trim()
+      || '',
+  });
+  return result || 'Unknown build';
+}
 
 stopBtn.addEventListener('click', async () => {
   setStatus('Processing coverage...', 'recording');
@@ -219,4 +228,11 @@ document.getElementById('historyBtn').addEventListener('click', async () => {
   const siteOrigin = getSiteOrigin(tab?.url);
   const query = siteOrigin ? `?origin=${encodeURIComponent(siteOrigin)}` : '';
   chrome.tabs.create({ url: chrome.runtime.getURL(`history.html${query}`) });
+});
+
+document.getElementById('deltaBtn').addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const siteOrigin = getSiteOrigin(tab?.url);
+  const originQuery = siteOrigin ? `origin=${encodeURIComponent(siteOrigin)}&` : '';
+  chrome.tabs.create({ url: chrome.runtime.getURL(`history.html?${originQuery}view=delta`) });
 });

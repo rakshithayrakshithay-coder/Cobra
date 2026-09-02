@@ -15,8 +15,6 @@ const emptyState = document.getElementById('emptyState');
 const dashboardCards = document.getElementById('dashboardCards');
 const overallFiles = document.getElementById('overallFiles');
 const viewOverallBtn = document.getElementById('viewOverallBtn');
-const baselineBuildSelect = document.getElementById('baselineBuildSelect');
-const comparisonBuildSelect = document.getElementById('comparisonBuildSelect');
 const deltaResults = document.getElementById('deltaResults');
 
 let coverageHistory = [];
@@ -24,7 +22,14 @@ let selectedSort = 'date-desc';
 let selectedFilters = { testSuite: '', environment: '', buildVersion: '' };
 let selectedBaselineBuild = '';
 let selectedComparisonBuild = '';
-const historySiteOrigin = new URLSearchParams(window.location.search).get('origin');
+const historyParameters = new URLSearchParams(window.location.search);
+const historySiteOrigin = historyParameters.get('origin');
+const deltaOnlyView = historyParameters.get('view') === 'delta';
+let focusCoverageDelta = deltaOnlyView;
+
+if (deltaOnlyView) {
+  document.body.classList.add('delta-only');
+}
 
 function getSiteHistory() {
   return historySiteOrigin ? coverageHistory.filter((record) => record.siteOrigin === historySiteOrigin) : [];
@@ -148,7 +153,7 @@ function formatFileUrl(url) {
   if (!url) return 'Unknown file';
   try {
     const parsed = new URL(url);
-    return parsed.hostname === 'localhost' ? `${parsed.pathname}${parsed.search}` : url;
+    return ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname) ? `${parsed.pathname}${parsed.search}` : url;
   } catch {
     return url;
   }
@@ -196,27 +201,22 @@ function getBuildVersions(records) {
   return [...latestByBuild.keys()].sort((first, second) => (latestByBuild.get(second) - latestByBuild.get(first)) || first.localeCompare(second));
 }
 
-function populateDeltaBuildOptions(records) {
+function selectLatestBuildPair(records) {
   const builds = getBuildVersions(records);
-  const previousBaseline = selectedBaselineBuild;
-  const previousComparison = selectedComparisonBuild;
-  [baselineBuildSelect, comparisonBuildSelect].forEach((select) => {
-    select.replaceChildren(new Option('Select a build', ''));
-    builds.forEach((build) => select.add(new Option(build, build)));
-    select.disabled = builds.length < 2;
-  });
-  selectedComparisonBuild = builds.includes(previousComparison) ? previousComparison : (builds[0] || '');
-  selectedBaselineBuild = builds.includes(previousBaseline) && previousBaseline !== selectedComparisonBuild
-    ? previousBaseline
-    : (builds.find((build) => build !== selectedComparisonBuild) || '');
-  baselineBuildSelect.value = selectedBaselineBuild;
-  comparisonBuildSelect.value = selectedComparisonBuild;
+  selectedComparisonBuild = builds[0] || '';
+  selectedBaselineBuild = builds[1] || '';
 }
 
 function functionIdentity(file, fn, index) {
   const name = String(fn?.name || '(anonymous)').trim();
   const location = String(fn?.location || '').trim();
-  return `${formatFileUrl(file.url)}\u0000${name}\u0000${location || index}`;
+  const fileUrl = formatFileUrl(file.url);
+
+  // A named function remains the same function when code is inserted above
+  // it, even when V8's offsets move. Anonymous callbacks have no stable name,
+  // so retain their location/index as the fallback identity.
+  if (!isAnonymous(name)) return `${fileUrl}\u0000name:${name}`;
+  return `${fileUrl}\u0000anonymous:${location || index}`;
 }
 
 function buildSnapshot(records) {
@@ -269,6 +269,14 @@ function renderDeltaFunctionList(functions) {
     entries.sort((first, second) => first.name.localeCompare(second.name)).forEach((fn) => {
       const item = document.createElement('div'); item.className = 'delta-function';
       item.textContent = `${fn.covered ? 'Executed' : 'Untested'} — ${fn.name}${fn.location ? ` (${fn.location})` : ''}`;
+      item.textContent = '';
+      const status = document.createElement('span');
+      status.className = `delta-function-status ${fn.covered ? 'executed' : 'untested'}`;
+      status.textContent = fn.covered ? 'Executed' : 'Untested';
+      const name = document.createElement('span');
+      name.className = 'delta-function-name';
+      name.textContent = fn.name;
+      item.append(status, name);
       content.appendChild(item);
     });
     details.append(summary, content); list.appendChild(details);
@@ -276,36 +284,57 @@ function renderDeltaFunctionList(functions) {
   return list;
 }
 
+function renderBuildFunctionSnapshot(label, buildVersion, snapshot) {
+  const executedFunctions = [...snapshot.functions.values()].filter((fn) => fn.covered);
+  const section = document.createElement('section');
+  section.className = 'delta-build';
+  const heading = document.createElement('h3');
+  heading.className = 'delta-build-heading';
+  heading.textContent = label;
+  const build = document.createElement('p');
+  build.className = 'delta-build-version';
+  build.textContent = buildVersion;
+  const summary = document.createElement('p');
+  summary.className = 'delta-note';
+  summary.textContent = `${executedFunctions.length} executed functions.`;
+  section.append(heading, build, summary, renderDeltaFunctionList(executedFunctions));
+  return section;
+}
+
 function renderCoverageDelta(records = getDeltaScopeHistory()) {
   deltaResults.replaceChildren();
   if (!selectedBaselineBuild || !selectedComparisonBuild || selectedBaselineBuild === selectedComparisonBuild) {
-    deltaResults.textContent = 'Select two different build versions to view the coverage delta.';
+    deltaResults.textContent = 'Coverage Delta will appear after coverage is captured for two detected builds.';
     deltaResults.className = 'delta-note';
     return;
   }
   const delta = getCoverageDelta(records);
-  const baselinePercent = percentNumber(delta.baseline.covered, delta.baseline.total);
-  const comparisonPercent = percentNumber(delta.comparison.covered, delta.comparison.total);
   const metrics = [
-    [`${comparisonPercent - baselinePercent >= 0 ? '+' : ''}${comparisonPercent - baselinePercent}%`, 'Coverage change'],
-    [delta.added.length, 'Functions added'],
-    [delta.addedCovered.length, 'New functions executed'],
-    [delta.addedUntested.length, 'New functions untested'],
+    [delta.added.length, 'Functions added', 'added'],
+    [delta.addedCovered.length, 'New functions executed', 'executed'],
+    [delta.addedUntested.length, 'New functions untested', 'untested'],
   ];
   const summary = document.createElement('div'); summary.className = 'delta-summary';
-  metrics.forEach(([value, label]) => {
-    const metric = document.createElement('div'); metric.className = 'delta-metric';
+  metrics.forEach(([value, label, tone]) => {
+    const metric = document.createElement('div'); metric.className = `delta-metric ${tone}`;
     const big = document.createElement('div'); big.className = 'delta-value'; big.textContent = value;
     const title = document.createElement('div'); title.className = 'delta-label'; title.textContent = label;
     metric.append(big, title); summary.appendChild(metric);
   });
   const note = document.createElement('p'); note.className = 'delta-note';
-  note.textContent = `${selectedBaselineBuild}: ${baselinePercent}% (${delta.baseline.covered}/${delta.baseline.total}) → ${selectedComparisonBuild}: ${comparisonPercent}% (${delta.comparison.covered}/${delta.comparison.total}). ${delta.newlyCoveredExisting.length} existing functions became covered; ${delta.removed.length} functions are not present in the comparison build.`;
+  note.textContent = `New build ${selectedComparisonBuild} is compared with ${selectedBaselineBuild}. ${delta.addedCovered.length} of ${delta.added.length} newly added functions were executed.`;
   deltaResults.className = '';
   deltaResults.append(summary, note);
-  if (delta.addedUntested.length) {
-    const heading = document.createElement('p'); heading.className = 'delta-note'; heading.textContent = 'New untested functions';
-    deltaResults.append(heading, renderDeltaFunctionList(delta.addedUntested));
+  const buildSnapshots = document.createElement('div');
+  buildSnapshots.className = 'delta-builds';
+  buildSnapshots.append(
+    renderBuildFunctionSnapshot('Previous build · executed functions', selectedBaselineBuild, delta.baseline),
+    renderBuildFunctionSnapshot('New build · executed functions', selectedComparisonBuild, delta.comparison)
+  );
+  deltaResults.append(buildSnapshots);
+  if (delta.added.length) {
+    const heading = document.createElement('p'); heading.className = 'delta-note'; heading.textContent = 'Functions added in the new build';
+    deltaResults.append(heading, renderDeltaFunctionList(delta.added));
   }
 }
 
@@ -440,7 +469,7 @@ function createDetailsRow(record) {
 function renderHistory() {
   const siteHistory = getSiteHistory();
   populateFilterOptions(siteHistory);
-  populateDeltaBuildOptions(getDeltaScopeHistory(siteHistory));
+  selectLatestBuildPair(getDeltaScopeHistory(siteHistory));
   const filtered = getFilteredHistory(siteHistory);
   const sorted = sortHistoryRecords(filtered);
   historyBody.replaceChildren(); emptyState.style.display = sorted.length ? 'none' : 'block'; exportBtn.disabled = !siteHistory.length; clearBtn.disabled = !siteHistory.length;
@@ -477,6 +506,14 @@ function renderHistory() {
   });
   renderDashboard(filtered);
   renderCoverageDelta(getDeltaScopeHistory(siteHistory));
+  if (focusCoverageDelta) {
+    focusCoverageDelta = false;
+    if (!deltaOnlyView) {
+      requestAnimationFrame(() => {
+        document.getElementById('deltaHeading')?.closest('.delta-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+  }
 }
 
 function showOverall() { renderDashboard(getFilteredHistory()); }
@@ -639,6 +676,4 @@ sortSelect.addEventListener('change', () => { selectedSort = sortSelect.value; r
 testSuiteFilter.addEventListener('change', () => { selectedFilters.testSuite = testSuiteFilter.value; renderHistory(); });
 environmentFilter.addEventListener('change', () => { selectedFilters.environment = environmentFilter.value; renderHistory(); });
 buildVersionFilter.addEventListener('change', () => { selectedFilters.buildVersion = buildVersionFilter.value; renderHistory(); });
-baselineBuildSelect.addEventListener('change', () => { selectedBaselineBuild = baselineBuildSelect.value; renderCoverageDelta(); });
-comparisonBuildSelect.addEventListener('change', () => { selectedComparisonBuild = comparisonBuildSelect.value; renderCoverageDelta(); });
 exportBtn.addEventListener('click', exportHistory); clearBtn.addEventListener('click', clearHistory); viewOverallBtn.addEventListener('click', showOverall); loadHistory();

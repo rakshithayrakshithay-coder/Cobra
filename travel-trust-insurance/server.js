@@ -3,9 +3,13 @@ const bodyParser = require('body-parser');
 const path = require('path');
 const fs = require('fs');
 const session = require('express-session');
+const packageInfo = require('./package.json');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+// CI/CD should set BUILD_VERSION to the release number or commit SHA. The
+// package version keeps local development recordings grouped consistently.
+const BUILD_VERSION = process.env.BUILD_VERSION || packageInfo.version;
 
 // Middleware
 app.use(bodyParser.json());
@@ -21,6 +25,7 @@ app.use(session({
 // Make session available in all EJS views
 app.use((req, res, next) => {
   res.locals.session = req.session;
+  res.locals.buildVersion = BUILD_VERSION;
   next();
 });
 
