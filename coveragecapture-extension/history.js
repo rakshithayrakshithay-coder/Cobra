@@ -258,15 +258,16 @@ function renderDeltaFunctionList(functions) {
   const list = document.createElement('div');
   list.className = 'delta-files';
   const byFile = new Map();
-  functions.forEach((fn) => {
-    if (!byFile.has(fn.file)) byFile.set(fn.file, []);
-    byFile.get(fn.file).push(fn);
+  (Array.isArray(functions) ? functions : []).forEach((fn) => {
+    const file = String(fn?.file || 'Unknown file');
+    if (!byFile.has(file)) byFile.set(file, []);
+    byFile.get(file).push(fn || {});
   });
   [...byFile.entries()].sort(([first], [second]) => first.localeCompare(second)).forEach(([file, entries]) => {
     const details = document.createElement('details'); details.className = 'delta-file';
     const summary = document.createElement('summary'); summary.textContent = `${file} (${entries.length})`;
     const content = document.createElement('div');
-    entries.sort((first, second) => first.name.localeCompare(second.name)).forEach((fn) => {
+    entries.sort((first, second) => String(first.name || '').localeCompare(String(second.name || ''))).forEach((fn) => {
       const item = document.createElement('div'); item.className = 'delta-function';
       item.textContent = `${fn.covered ? 'Executed' : 'Untested'} — ${fn.name}${fn.location ? ` (${fn.location})` : ''}`;
       item.textContent = '';
@@ -285,7 +286,10 @@ function renderDeltaFunctionList(functions) {
 }
 
 function renderBuildFunctionSnapshot(label, buildVersion, snapshot) {
-  const executedFunctions = [...snapshot.functions.values()].filter((fn) => fn.covered);
+  const functions = snapshot?.functions instanceof Map
+    ? [...snapshot.functions.values()]
+    : Array.isArray(snapshot?.functions) ? snapshot.functions : [];
+  const executedFunctions = functions.filter((fn) => fn?.covered);
   const section = document.createElement('section');
   section.className = 'delta-build';
   const heading = document.createElement('h3');
