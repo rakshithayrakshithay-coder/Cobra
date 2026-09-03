@@ -10,6 +10,7 @@ const PORT = process.env.PORT || 3000;
 // CI/CD should set BUILD_VERSION to the release number or commit SHA. The
 // package version keeps local development recordings grouped consistently.
 const BUILD_VERSION = process.env.BUILD_VERSION || packageInfo.version;
+const COVERAGE_ENVIRONMENT = process.env.COVERAGE_ENVIRONMENT || process.env.DEPLOYMENT_ENVIRONMENT || process.env.NODE_ENV || 'Development';
 
 // Middleware
 app.use(bodyParser.json());
@@ -26,6 +27,7 @@ app.use(session({
 app.use((req, res, next) => {
   res.locals.session = req.session;
   res.locals.buildVersion = BUILD_VERSION;
+  res.locals.coverageEnvironment = COVERAGE_ENVIRONMENT;
   next();
 });
 

@@ -5,7 +5,7 @@
   "main": "bridge-server.js",
   "scripts": {
     "start": "node bridge-server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node tests/environment-isolation.test.js"
   },
   "keywords": [],
   "author": "",

@@ -199,16 +199,10 @@
     <option value="Sanity">Sanity</option>
   </select>
 
-  <label for="environment">Environment <span class="note">(optional)</span></label>
-  <select id="environment">
-    <option value="Unspecified">Unspecified</option>
-    <option value="Development">Development</option>
-    <option value="QA">QA</option>
-    <option value="UAT">UAT</option>
-    <option value="Production">Production</option>
-  </select>
+  <label for="environment">Environment <span class="note">(auto-detected from the deployed application)</span></label>
+  <input id="environment" type="text" value="Detecting…" readonly aria-live="polite">
 
-  <p class="note">Build version is detected from the application automatically.</p>
+  <p class="note">Build version and environment are detected from the application automatically.</p>
 
   <div class="btn-row">
     <button id="startBtn">Start</button>

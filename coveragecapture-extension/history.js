@@ -24,12 +24,13 @@ const comparisonBuildSelect = document.getElementById('comparisonBuildSelect');
 
 let coverageHistory = [];
 let selectedSort = 'date-desc';
-let selectedFilters = { testSuite: '', environment: '', buildVersion: '' };
 let selectedBaselineBuild = '';
 let selectedComparisonBuild = '';
 let deltaViewMode = 'automatic';
 const historyParameters = new URLSearchParams(window.location.search);
 const historySiteOrigin = historyParameters.get('origin');
+const historyEnvironment = normalizeEnvironment(historyParameters.get('environment'));
+let selectedFilters = { testSuite: '', environment: historyEnvironment || '', buildVersion: '' };
 const deltaOnlyView = historyParameters.get('view') === 'delta';
 let focusCoverageDelta = deltaOnlyView;
 
@@ -37,8 +38,16 @@ if (deltaOnlyView) {
   document.body.classList.add('delta-only');
 }
 
+function normalizeEnvironment(value) {
+  const aliases = { dev: 'Development', development: 'Development', qa: 'QA', test: 'QA', uat: 'UAT', staging: 'UAT', prod: 'Production', production: 'Production' };
+  const environment = String(value || '').trim();
+  return aliases[environment.toLowerCase()] || environment;
+}
+
 function getSiteHistory() {
-  return historySiteOrigin ? coverageHistory.filter((record) => record.siteOrigin === historySiteOrigin) : [];
+  return historySiteOrigin && historyEnvironment
+    ? coverageHistory.filter((record) => record.siteOrigin === historySiteOrigin && getRecordMetadata(record).environment === historyEnvironment)
+    : [];
 }
 
 function getRecordMetadata(record) {
@@ -507,7 +516,9 @@ function renderHistory() {
   const filtered = getFilteredHistory(siteHistory);
   const sorted = sortHistoryRecords(filtered);
   historyBody.replaceChildren(); emptyState.style.display = sorted.length ? 'none' : 'block'; exportBtn.disabled = !siteHistory.length; clearBtn.disabled = !siteHistory.length;
-  summaryText.textContent = historySiteOrigin ? `${filtered.length} of ${siteHistory.length} tests shown for ${historySiteOrigin}.` : 'Open History from a website tab to view its coverage history.';
+  summaryText.textContent = historySiteOrigin && historyEnvironment
+    ? `${filtered.length} of ${siteHistory.length} tests shown for ${historyEnvironment} at ${historySiteOrigin}.`
+    : 'Open History from a website tab to view its environment-scoped coverage history.';
   sorted.forEach((record) => {
     const { covered, total } = getRecordCoverage(record);
     const row = document.createElement('tr'); const coverage = document.createElement('td'); coverage.className = 'row-coverage'; coverage.append(createBar(covered, total), document.createTextNode(getCoveragePercent(covered, total)));
@@ -554,7 +565,8 @@ function showOverall() { renderDashboard(getFilteredHistory()); }
 async function loadHistory() {
   if (historySiteOrigin) {
     try {
-      const response = await fetch(`${BRIDGE_SERVER_URL}/coverage-sessions?origin=${encodeURIComponent(historySiteOrigin)}`);
+      if (!historyEnvironment) throw new Error('An environment is required to load coverage history.');
+      const response = await fetch(`${BRIDGE_SERVER_URL}/coverage-sessions?origin=${encodeURIComponent(historySiteOrigin)}&environment=${encodeURIComponent(historyEnvironment)}`);
       if (!response.ok) throw new Error(`Bridge server returned ${response.status}`);
       const { sessions } = await response.json();
       coverageHistory = Array.isArray(sessions) ? sessions.map((session) => ({
@@ -589,7 +601,7 @@ async function deleteHistoryRecord(record) {
   const recordIndex = coverageHistory.indexOf(record);
   if (recordIndex === -1) return;
   if (record.jobId) {
-    const response = await fetch(`${BRIDGE_SERVER_URL}/coverage-sessions/${encodeURIComponent(record.jobId)}`, { method: 'DELETE' });
+    const response = await fetch(`${BRIDGE_SERVER_URL}/coverage-sessions/${encodeURIComponent(record.jobId)}?environment=${encodeURIComponent(historyEnvironment)}`, { method: 'DELETE' });
     if (!response.ok && response.status !== 404) throw new Error(`Could not remove saved session (${response.status}).`);
   }
   coverageHistory = coverageHistory.filter((_, index) => index !== recordIndex);
@@ -699,9 +711,9 @@ function exportHistory() {
 async function clearHistory() {
   const siteHistory = getSiteHistory();
   if (!siteHistory.length || !window.confirm(`Clear CoverageCapture history for ${historySiteOrigin}? This cannot be undone.`)) return;
-  const response = await fetch(`${BRIDGE_SERVER_URL}/coverage-sessions?origin=${encodeURIComponent(historySiteOrigin)}`, { method: 'DELETE' });
+  const response = await fetch(`${BRIDGE_SERVER_URL}/coverage-sessions?origin=${encodeURIComponent(historySiteOrigin)}&environment=${encodeURIComponent(historyEnvironment)}`, { method: 'DELETE' });
   if (!response.ok) throw new Error(`Could not clear saved sessions (${response.status}).`);
-  coverageHistory = coverageHistory.filter((record) => record.siteOrigin !== historySiteOrigin);
+  coverageHistory = coverageHistory.filter((record) => record.siteOrigin !== historySiteOrigin || getRecordMetadata(record).environment !== historyEnvironment);
   await chrome.storage.local.set({ [STORAGE_KEY]: coverageHistory });
   renderHistory();
 }

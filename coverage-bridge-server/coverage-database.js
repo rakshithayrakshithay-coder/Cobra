@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
+const { requireEnvironment } = require('./environment');
 
 const DATABASE_PATH = process.env.COVERAGECAPTURE_DB_PATH || path.join(__dirname, 'db', 'coveragecapture.db');
 
@@ -16,7 +17,7 @@ database.exec(`
     test_name TEXT NOT NULL DEFAULT '',
     test_description TEXT NOT NULL DEFAULT '',
     test_suite TEXT NOT NULL DEFAULT 'Manual',
-    environment TEXT NOT NULL DEFAULT 'Unspecified',
+    environment TEXT NOT NULL,
     build_version TEXT NOT NULL DEFAULT '',
     site_origin TEXT NOT NULL DEFAULT '',
     started_at TEXT NOT NULL,
@@ -46,6 +47,17 @@ database.exec(`
     UNIQUE(site_origin, build_version)
   );
 
+  CREATE TABLE IF NOT EXISTS delta_coverage_by_environment (
+    id INTEGER PRIMARY KEY,
+    site_origin TEXT NOT NULL,
+    environment TEXT NOT NULL,
+    build_version TEXT NOT NULL DEFAULT '',
+    baseline_ref TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    delta_json TEXT NOT NULL,
+    UNIQUE(site_origin, environment, build_version)
+  );
+
   CREATE INDEX IF NOT EXISTS coverage_files_job_id_idx ON coverage_files(job_id);
   CREATE INDEX IF NOT EXISTS coverage_sessions_started_at_idx ON coverage_sessions(started_at DESC);
 
@@ -69,6 +81,8 @@ if (!sessionColumns.some((column) => column.name === 'build_version')) {
   database.exec("ALTER TABLE coverage_sessions ADD COLUMN build_version TEXT NOT NULL DEFAULT ''");
 }
 database.exec('CREATE INDEX IF NOT EXISTS coverage_sessions_site_origin_idx ON coverage_sessions(site_origin)');
+database.exec('CREATE INDEX IF NOT EXISTS coverage_sessions_origin_environment_started_at_idx ON coverage_sessions(site_origin, environment, started_at DESC)');
+database.exec('CREATE INDEX IF NOT EXISTS delta_coverage_environment_idx ON delta_coverage_by_environment(site_origin, environment, created_at DESC)');
 
 const insertSession = database.prepare(`
   INSERT INTO coverage_sessions (job_id, status, test_name, test_description, test_suite, environment, build_version, site_origin, started_at)
@@ -85,17 +99,17 @@ const insertFile = database.prepare(`
 `);
 const getSession = database.prepare('SELECT * FROM coverage_sessions WHERE job_id = ?');
 const getFiles = database.prepare('SELECT url, total_functions, covered_functions, functions_json FROM coverage_files WHERE job_id = ? ORDER BY id');
-const listSessions = database.prepare('SELECT * FROM coverage_sessions WHERE site_origin = ? ORDER BY started_at DESC');
-const deleteSession = database.prepare('DELETE FROM coverage_sessions WHERE job_id = ?');
-const deleteSessionsForOrigin = database.prepare('DELETE FROM coverage_sessions WHERE site_origin = ?');
+const listSessions = database.prepare('SELECT * FROM coverage_sessions WHERE site_origin = ? AND environment = ? ORDER BY started_at DESC');
+const deleteSession = database.prepare('DELETE FROM coverage_sessions WHERE job_id = ? AND environment = ?');
+const deleteSessionsForOrigin = database.prepare('DELETE FROM coverage_sessions WHERE site_origin = ? AND environment = ?');
 const sessionsWithoutOrigin = database.prepare("SELECT job_id FROM coverage_sessions WHERE site_origin = ''");
 const updateSessionOrigin = database.prepare('UPDATE coverage_sessions SET site_origin = ? WHERE job_id = ?');
 const upsertDeltaCoverage = database.prepare(`
-  INSERT INTO delta_coverage (site_origin, build_version, baseline_ref, created_at, delta_json)
-  VALUES (?, ?, ?, ?, ?)
-  ON CONFLICT(site_origin, build_version) DO UPDATE SET baseline_ref = excluded.baseline_ref, created_at = excluded.created_at, delta_json = excluded.delta_json
+  INSERT INTO delta_coverage_by_environment (site_origin, environment, build_version, baseline_ref, created_at, delta_json)
+  VALUES (?, ?, ?, ?, ?, ?)
+  ON CONFLICT(site_origin, environment, build_version) DO UPDATE SET baseline_ref = excluded.baseline_ref, created_at = excluded.created_at, delta_json = excluded.delta_json
 `);
-const getLatestDeltaCoverage = database.prepare('SELECT * FROM delta_coverage WHERE site_origin = ? ORDER BY created_at DESC LIMIT 1');
+const getLatestDeltaCoverage = database.prepare('SELECT * FROM delta_coverage_by_environment WHERE site_origin = ? AND environment = ? ORDER BY created_at DESC LIMIT 1');
 
 function parseJson(value, fallback) {
   try {
@@ -124,8 +138,9 @@ for (const session of sessionsWithoutOrigin.all()) {
   if (siteOrigin) updateSessionOrigin.run(siteOrigin, session.job_id);
 }
 
-function createSession({ jobId, testName, testDescription, testSuite = 'Manual', environment = 'Unspecified', buildVersion = '', siteOrigin, startedAt }) {
-  insertSession.run(jobId, testName, testDescription, testSuite || 'Manual', environment || 'Unspecified', buildVersion || '', siteOrigin || '', startedAt);
+function createSession({ jobId, testName = '', testDescription = '', testSuite = 'Manual', environment, buildVersion = '', siteOrigin = '', startedAt }) {
+  const normalizedEnvironment = requireEnvironment(environment);
+  insertSession.run(jobId, testName, testDescription, testSuite || 'Manual', normalizedEnvironment, buildVersion || '', siteOrigin || '', startedAt);
   return getCoverageSession(jobId);
 }
 
@@ -189,27 +204,28 @@ function getCoverageSession(jobId) {
   return toCoverageSession(getSession.get(jobId));
 }
 
-function listCoverageSessions(siteOrigin) {
-  return listSessions.all(siteOrigin).map((session) => toCoverageSession(session, false));
+function listCoverageSessions(siteOrigin, environment) {
+  return listSessions.all(siteOrigin, requireEnvironment(environment)).map((session) => toCoverageSession(session, false));
 }
 
-function removeCoverageSession(jobId) {
-  return deleteSession.run(jobId).changes > 0;
+function removeCoverageSession(jobId, environment) {
+  return deleteSession.run(jobId, requireEnvironment(environment)).changes > 0;
 }
 
-function removeCoverageSessionsForOrigin(siteOrigin) {
-  return deleteSessionsForOrigin.run(siteOrigin).changes;
+function removeCoverageSessionsForOrigin(siteOrigin, environment) {
+  return deleteSessionsForOrigin.run(siteOrigin, requireEnvironment(environment)).changes;
 }
 
-function saveDeltaCoverage({ siteOrigin = '', buildVersion = '', baselineRef = '', delta }) {
-  upsertDeltaCoverage.run(siteOrigin, buildVersion, baselineRef, new Date().toISOString(), JSON.stringify(delta));
-  return getDeltaCoverage(siteOrigin);
+function saveDeltaCoverage({ siteOrigin = '', environment, buildVersion = '', baselineRef = '', delta }) {
+  const normalizedEnvironment = requireEnvironment(environment);
+  upsertDeltaCoverage.run(siteOrigin, normalizedEnvironment, buildVersion, baselineRef, new Date().toISOString(), JSON.stringify(delta));
+  return getDeltaCoverage(siteOrigin, normalizedEnvironment);
 }
 
-function getDeltaCoverage(siteOrigin) {
-  const row = getLatestDeltaCoverage.get(siteOrigin);
+function getDeltaCoverage(siteOrigin, environment) {
+  const row = getLatestDeltaCoverage.get(siteOrigin, requireEnvironment(environment));
   if (!row) return null;
-  return { siteOrigin: row.site_origin, buildVersion: row.build_version, baselineRef: row.baseline_ref, createdAt: row.created_at, delta: parseJson(row.delta_json, null) };
+  return { siteOrigin: row.site_origin, environment: row.environment, buildVersion: row.build_version, baselineRef: row.baseline_ref, createdAt: row.created_at, delta: parseJson(row.delta_json, null) };
 }
 
 module.exports = {

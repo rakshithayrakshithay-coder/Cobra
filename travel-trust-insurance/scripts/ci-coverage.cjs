@@ -10,6 +10,7 @@ const baseUrl = process.env.COVERAGE_BASE_URL || `http://127.0.0.1:${port}`;
 const historyOrigin = process.env.COVERAGE_HISTORY_ORIGIN || new URL(baseUrl).origin;
 const artifacts = path.join(root, 'coverage-artifacts');
 const nodeCoverageDirectory = path.join(artifacts, 'node-v8-coverage');
+const coverageEnvironment = process.env.COVERAGE_ENVIRONMENT || process.env.DEPLOYMENT_ENVIRONMENT || process.env.NODE_ENV || 'Development';
 
 async function waitForServer() {
   for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -77,7 +78,7 @@ async function run() {
     fs.mkdirSync(artifacts, { recursive: true });
     const timestamp = new Date().toISOString();
     fs.writeFileSync(path.join(artifacts, 'ci-coverage.json'), JSON.stringify({
-      testName: 'CI regression coverage', testSuite: 'CI', environment: 'GitHub Actions',
+      testName: 'CI regression coverage', testSuite: 'CI', environment: coverageEnvironment,
       buildVersion: process.env.GITHUB_SHA || process.env.BUILD_VERSION || 'local', siteOrigin: historyOrigin,
       startedAt: timestamp, stoppedAt: timestamp, coverage: rawCoverage.result, files: filesFromCoverage(rawCoverage.result), backendCoverage: readBackendCoverage(),
     }, null, 2));

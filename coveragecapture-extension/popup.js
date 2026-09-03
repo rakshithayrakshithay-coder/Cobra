@@ -129,7 +129,7 @@ function setRecordingControls(recording) {
   testNameInput.disabled = recording;
   testDescInput.disabled = recording;
   testSuiteInput.disabled = recording;
-  environmentInput.disabled = recording;
+  environmentInput.readOnly = true;
 }
 
 function sendRuntimeMessage(message) {
@@ -158,21 +158,36 @@ async function restoreActiveSession() {
   testNameInput.value = status.testName || '';
   testDescInput.value = status.testDescription || '';
   testSuiteInput.value = status.testSuite || 'Manual';
-  environmentInput.value = status.environment || 'Unspecified';
+  setEnvironmentDisplay(status.environment);
   setStatus('Recording coverage — perform your test actions, then click Stop.', 'recording');
+}
+
+function setEnvironmentDisplay(environment) {
+  environmentInput.value = String(environment || '').trim() || 'Detection unavailable';
+}
+
+async function refreshDetectedEnvironment() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const environment = await detectEnvironment(tab?.id);
+  setEnvironmentDisplay(environment);
+  return environment;
 }
 
 (async () => {
   const { latestCoverageResult } = await chrome.storage.local.get('latestCoverageResult');
   if (latestCoverageResult) renderResults(latestCoverageResult);
-  try { await restoreActiveSession(); } catch (error) { setStatus(`Could not restore recording state: ${error.message}`, 'error'); }
+  try {
+    await restoreActiveSession();
+    if (!activeJobId) await refreshDetectedEnvironment();
+  } catch (error) {
+    setStatus(`Environment detection failed: ${error.message}`, 'error');
+  }
 })();
 
 startBtn.addEventListener('click', async () => {
   const testName = testNameInput.value.trim();
   const testDescription = testDescInput.value.trim();
   const testSuite = testSuiteInput.value;
-  const environment = environmentInput.value;
   if (!testName && !testDescription) return setStatus('Please enter a test scenario or description first.', 'error');
   setRecordingControls(true);
   setStatus('Creating manual recording session...', 'recording');
@@ -181,6 +196,7 @@ startBtn.addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const siteOrigin = getSiteOrigin(tab?.url);
     const buildVersion = await detectBuildVersion(tab?.id);
+    const environment = await refreshDetectedEnvironment();
     const job = await createManualJob({ testName, testDescription, testSuite, environment, buildVersion, siteOrigin });
     await sendRuntimeMessage({ action: 'startCoverage', tabId: tab?.id, jobId: job.jobId, testName: testName || testDescription, testDescription, testSuite, environment, buildVersion, startedAt: job.startedAt, siteOrigin });
     activeJobId = job.jobId;
@@ -201,6 +217,31 @@ async function detectBuildVersion(tabId) {
       || '',
   });
   return result || 'Unknown build';
+}
+
+async function detectEnvironment(tabId) {
+  if (!Number.isInteger(tabId)) throw new Error('No active tab is available to detect the deployed environment.');
+  const [{ result } = {}] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const declared = document.querySelector('meta[name="coveragecapture-environment"]')?.content?.trim()
+        || document.documentElement.dataset.coverageEnvironment?.trim();
+      if (declared) return declared;
+      const host = location.hostname.toLowerCase();
+      if (['localhost', '127.0.0.1', '::1'].includes(host) || /(^|[.-])dev([.-]|$)/.test(host)) return 'Development';
+      if (/(^|[.-])qa([.-]|$)|(^|[.-])test([.-]|$)/.test(host)) return 'QA';
+      if (/(^|[.-])(uat|staging)([.-]|$)/.test(host)) return 'UAT';
+      return '';
+    },
+  });
+  if (!result) throw new Error('The deployed environment is not declared. Set meta[name="coveragecapture-environment"] during deployment.');
+  return normalizeEnvironment(result);
+}
+
+function normalizeEnvironment(value) {
+  const aliases = { dev: 'Development', development: 'Development', qa: 'QA', test: 'QA', uat: 'UAT', staging: 'UAT', prod: 'Production', production: 'Production' };
+  const environment = String(value || '').trim();
+  return aliases[environment.toLowerCase()] || environment;
 }
 
 stopBtn.addEventListener('click', async () => {
@@ -226,13 +267,15 @@ stopBtn.addEventListener('click', async () => {
 document.getElementById('historyBtn').addEventListener('click', async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const siteOrigin = getSiteOrigin(tab?.url);
-  const query = siteOrigin ? `?origin=${encodeURIComponent(siteOrigin)}` : '';
+  const environment = await detectEnvironment(tab?.id);
+  const query = siteOrigin ? `?origin=${encodeURIComponent(siteOrigin)}&environment=${encodeURIComponent(environment)}` : '';
   chrome.tabs.create({ url: chrome.runtime.getURL(`history.html${query}`) });
 });
 
 document.getElementById('deltaBtn').addEventListener('click', async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const siteOrigin = getSiteOrigin(tab?.url);
-  const originQuery = siteOrigin ? `origin=${encodeURIComponent(siteOrigin)}&` : '';
+  const environment = await detectEnvironment(tab?.id);
+  const originQuery = siteOrigin ? `origin=${encodeURIComponent(siteOrigin)}&environment=${encodeURIComponent(environment)}&` : '';
   chrome.tabs.create({ url: chrome.runtime.getURL(`history.html?${originQuery}view=delta`) });
 });
