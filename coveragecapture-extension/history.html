@@ -463,6 +463,14 @@
     .coverage-list { padding: 42px 50px; border-top: 1px solid #e8edf4; background: #fff; }
     .delta-section { margin-top: 18px; padding: 26px; border: 1px solid #d5e1f0; border-radius: 12px; background: linear-gradient(135deg, #f8fbff 0%, #eef6ff 100%); box-shadow: 0 16px 34px rgba(10, 31, 68, .08); }
     .delta-heading { margin: 0 0 6px; color: var(--navy); font-size: 22px; letter-spacing: -.02em; }
+    .delta-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+    .delta-header .section-note { margin: 0; }
+    .delta-refresh-button { flex: 0 0 auto; min-height: 36px; padding: 7px 12px; border: 1px solid #1d4ed8; border-radius: 6px; color: #fff; background: #2563eb; font-size: 12px; font-weight: 700; }
+    .delta-refresh-button:disabled { border-color: #94a3b8; background: #94a3b8; cursor: not-allowed; }
+    .delta-report-meta { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 14px; color: #48627f; font-size: 12px; }
+    .delta-report-meta strong { color: var(--navy); }
+    .delta-refresh-status { margin: 8px 0 0; color: #48627f; font-size: 12px; }
+    .delta-refresh-status.error { color: #b91c1c; }
     .delta-mode-switch { display: flex; gap: 8px; margin-top: 18px; }
     .delta-mode-button { min-height: 36px; padding: 7px 12px; border: 1px solid #cbd9e9; border-radius: 999px; color: #48627f; background: #fff; font-size: 12px; font-weight: 700; }
     .delta-mode-button[aria-pressed="true"] { border-color: var(--navy); color: #fff; background: var(--navy); box-shadow: 0 3px 8px rgba(10, 31, 68, .15); }
@@ -517,6 +525,7 @@
       .overall-file summary { grid-template-columns: 1fr auto; gap: 8px 12px; }
       .coverage-list { padding: 28px 22px; }
       .delta-controls, .delta-summary, .delta-builds { grid-template-columns: 1fr; }
+      .delta-header { flex-direction: column; }
     }
   </style>
 </head>
@@ -567,8 +576,15 @@
         <div class="dashboard-grid" id="dashboardCards"></div>
         <p class="section-note">Based on functions observed across all captured test runs so far — not a full static analysis of the entire codebase.</p>
         <section class="delta-section" aria-labelledby="deltaHeading">
-          <h2 id="deltaHeading" class="delta-heading">Coverage Delta</h2>
-          <p id="deltaIntro" class="section-note">Automatically compares the newest detected build with the build immediately before it. Only functions introduced by the newest build are shown.</p>
+          <div class="delta-header">
+            <div>
+              <h2 id="deltaHeading" class="delta-heading">Coverage Delta</h2>
+              <p id="deltaIntro" class="section-note">Automated code and coverage comparison for the selected environment.</p>
+            </div>
+            <button id="refreshDeltaBtn" class="delta-refresh-button" type="button">Refresh Delta Check</button>
+          </div>
+          <div id="deltaReportMeta" class="delta-report-meta" aria-live="polite"></div>
+          <p id="deltaRefreshStatus" class="delta-refresh-status" aria-live="polite"></p>
           <div class="delta-mode-switch" role="group" aria-label="Coverage delta mode">
             <button id="automaticDeltaBtn" class="delta-mode-button" type="button" aria-pressed="true">Automatic delta</button>
             <button id="manualDeltaBtn" class="delta-mode-button" type="button" aria-pressed="false">Compare recorded builds</button>

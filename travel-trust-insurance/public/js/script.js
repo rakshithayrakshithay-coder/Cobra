@@ -2,6 +2,38 @@
  * TravelTrust Insurance — Frontend Scripts
  */
 
+// Intentionally left unused so the Coverage Delta check can report a new untested function.
+function coverageDeltaVerificationMarker() {
+  return 'coverage-delta-verification-v4';
+}
+
+function formatCoverageDeltaStatus(changedFunctionCount) {
+  return `${changedFunctionCount} changed function${changedFunctionCount === 1 ? '' : 's'}`;
+}
+
+function hasCoverageDeltaChanges(changedFunctionCount) {
+  return changedFunctionCount > 0;
+}
+
+// Quick-quote helpers keep the homepage validation consistent and are
+// intentionally separate so coverage can identify each behaviour clearly.
+function normalizeQuickQuoteZipCode(zipCode) {
+  return String(zipCode || '').trim().replace(/\s+/g, '');
+}
+
+function getQuickQuoteValidationMessage({ zipCode, insuranceType }) {
+  if (!/^\d{5}$/.test(zipCode)) return 'Please enter a valid 5-digit ZIP code.';
+  if (!insuranceType) return 'Please select an insurance type.';
+  return '';
+}
+
+function createQuickQuotePayload(formData) {
+  return {
+    zipCode: normalizeQuickQuoteZipCode(formData.get('zipCode')),
+    insuranceType: String(formData.get('insuranceType') || '').trim()
+  };
+}
+
 function displayLoginErrorMessage(panel, message) {
   let errorBox = panel.querySelector('.login-error');
 
@@ -236,17 +268,11 @@ const initializePageInteractions = function initializePageInteractions() {
     const submitQuickQuoteRequest = async function submitQuickQuoteRequest(e) {
       e.preventDefault();
       const formData = new FormData(this);
-      const payload = {
-        zipCode: formData.get('zipCode'),
-        insuranceType: formData.get('insuranceType')
-      };
+      const payload = createQuickQuotePayload(formData);
+      const validationMessage = getQuickQuoteValidationMessage(payload);
 
-      if (!payload.zipCode || payload.zipCode.length !== 5) {
-        displayQuickQuoteResponse('Please enter a valid 5-digit ZIP code.', 'error');
-        return;
-      }
-      if (!payload.insuranceType) {
-        displayQuickQuoteResponse('Please select an insurance type.', 'error');
+      if (validationMessage) {
+        displayQuickQuoteResponse(validationMessage, 'error');
         return;
       }
 

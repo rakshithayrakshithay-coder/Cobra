@@ -1,4 +1,6 @@
 const crypto = require('crypto');
+const { spawn } = require('child_process');
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const {
@@ -16,9 +18,52 @@ const { requireEnvironment } = require('./environment');
 
 const app = express();
 const port = 4000;
+const travelTrustRoot = path.resolve(__dirname, '..', 'travel-trust-insurance');
+let deltaCheckInProgress = false;
 
 app.use(cors());
 app.use(express.json({ limit: '25mb' }));
+
+function isLocalOrigin(value) {
+  try { return ['localhost', '127.0.0.1', '::1'].includes(new URL(value).hostname); }
+  catch { return false; }
+}
+
+function runProjectScript(script, environment) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [path.join('scripts', script)], {
+      cwd: travelTrustRoot,
+      env: { ...process.env, COVERAGE_PORT: '3101', COVERAGE_HISTORY_ORIGIN: environment.siteOrigin, COVERAGE_ENVIRONMENT: environment.name },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    let output = '';
+    child.stdout.on('data', (chunk) => { output += chunk; });
+    child.stderr.on('data', (chunk) => { output += chunk; });
+    child.on('error', reject);
+    child.on('close', (code) => code === 0 ? resolve(output) : reject(new Error(`${script} failed (exit ${code}). ${output.trim()}`)));
+  });
+}
+
+app.post('/run-delta-check', async (req, res) => {
+  const siteOrigin = String(req.body?.siteOrigin || '');
+  let environment;
+  try { environment = requireEnvironment(req.body?.environment); }
+  catch (error) { return res.status(400).json({ error: error.message }); }
+  if (!isLocalOrigin(siteOrigin)) return res.status(400).json({ error: 'Run Delta Check is available only for localhost applications.' });
+  if (deltaCheckInProgress) return res.status(409).json({ error: 'A delta check is already running.' });
+
+  deltaCheckInProgress = true;
+  try {
+    await runProjectScript('ci-coverage.cjs', { siteOrigin, name: environment });
+    await runProjectScript('create-coverage-delta.cjs', { siteOrigin, name: environment });
+    return res.json({ analysis: getDeltaCoverage(siteOrigin, environment) });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  } finally {
+    deltaCheckInProgress = false;
+  }
+});
 
 app.post('/delta-analysis', (req, res) => {
   const { siteOrigin = '', environment, buildVersion = '', baselineRef = '', delta } = req.body || {};
@@ -104,4 +149,4 @@ app.delete('/coverage-sessions', (req, res) => {
   return res.json({ deleted });
 });
 
-app.listen(port, () => console.log(`Coverage bridge server listening on port ${port} using SQLite database ${DATABASE_PATH}`));
+app.listen(port, '127.0.0.1', () => console.log(`Coverage bridge server listening on port ${port} using SQLite database ${DATABASE_PATH}`));

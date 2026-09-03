@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, '..');
 const artifacts = path.join(root, 'coverage-artifacts');
 const report = JSON.parse(fs.readFileSync(path.join(artifacts, 'ci-coverage.json'), 'utf8'));
 const baselinePath = process.env.COVERAGE_BASELINE_PATH || path.join(artifacts, 'coverage-baseline.json');
+const updateBaseline = process.argv.includes('--update-baseline');
 // A git diff is used by CI when Git is available; local runs use the snapshot below.
 function baseline() {
   if (fs.existsSync(baselinePath)) return JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
@@ -30,7 +31,8 @@ const priorIds = new Map(previous.map((fn) => [fn.id, fn])); const latestIds = n
 const added = latest.filter((fn) => !priorIds.has(fn.id) && !priorLogical.has(fn.logicalId)); const modified = latest.filter((fn) => priorLogical.has(fn.logicalId) && (priorLogical.get(fn.logicalId).id !== fn.id || priorLogical.get(fn.logicalId).hash !== fn.hash)); const removed = previous.filter((fn) => !latestIds.has(fn.id) && !latestLogical.has(fn.logicalId));
 const changed = [...added, ...modified.map((fn) => ({ ...fn, changeType: 'modified' }))].map((fn) => ({ ...fn, covered: isCovered(fn) }));
 const delta = { schemaVersion: 2, baselineRef: process.env.BASE_REF || 'saved baseline', comparisonRef: process.env.GITHUB_SHA || 'local', inventory: { baselineFunctions: previous.length, currentFunctions: latest.length }, functionsAdded: added, functionsModified: modified, functionsRemoved: removed, newFunctionsExecuted: changed.filter((fn) => fn.covered), newFunctionsUntested: changed.filter((fn) => !fn.covered), report };
-fs.writeFileSync(path.join(artifacts, 'coverage-delta.json'), JSON.stringify(delta, null, 2)); fs.writeFileSync(baselinePath, JSON.stringify(current, null, 2));
+fs.writeFileSync(path.join(artifacts, 'coverage-delta.json'), JSON.stringify(delta, null, 2));
+if (updateBaseline) fs.writeFileSync(baselinePath, JSON.stringify(current, null, 2));
 const bridgeUrl = (process.env.COVERAGE_BRIDGE_URL || 'http://127.0.0.1:4000').replace(/\/$/, '');
 const environment = report.environment || process.env.COVERAGE_ENVIRONMENT || process.env.DEPLOYMENT_ENVIRONMENT || process.env.NODE_ENV || 'Development';
 fetch(`${bridgeUrl}/delta-analysis`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ siteOrigin: report.siteOrigin, environment, buildVersion: report.buildVersion, baselineRef: delta.baselineRef, delta }) })

@@ -6,6 +6,7 @@ const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
 const statusDiv = document.getElementById('status');
 const resultsDiv = document.getElementById('results');
+const runDeltaBtn = document.getElementById('runDeltaBtn');
 const bridgeServerUrl = 'http://localhost:4000';
 
 let activeJobId = null;
@@ -280,10 +281,33 @@ document.getElementById('historyBtn').addEventListener('click', async () => {
   chrome.tabs.create({ url: chrome.runtime.getURL(`history.html${query}`) });
 });
 
-document.getElementById('deltaBtn').addEventListener('click', async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const siteOrigin = getSiteOrigin(tab?.url);
-  const environment = await detectEnvironment(tab?.id);
-  const originQuery = siteOrigin ? `origin=${encodeURIComponent(siteOrigin)}&environment=${encodeURIComponent(environment)}&` : '';
-  chrome.tabs.create({ url: chrome.runtime.getURL(`history.html?${originQuery}view=delta`) });
+runDeltaBtn.addEventListener('click', async () => {
+  runDeltaBtn.disabled = true;
+  setStatus('Running automated coverage and delta check...', 'recording');
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const siteOrigin = getSiteOrigin(tab?.url);
+    const environment = await detectEnvironment(tab?.id);
+    if (!siteOrigin) throw new Error('Open a localhost application tab before running the delta check.');
+    const response = await fetch(`${bridgeServerUrl}/run-delta-check`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteOrigin, environment }),
+    });
+    const responseText = await response.text();
+    let result = null;
+    try { result = responseText ? JSON.parse(responseText) : null; }
+    catch {
+      if (response.status === 404) throw new Error('Restart the Coverage Bridge Server to enable Run Delta Check.');
+      throw new Error(`Bridge server returned an unexpected response (${response.status}).`);
+    }
+    if (!response.ok) throw new Error(result?.error || `Run failed with ${response.status}`);
+    setStatus('Delta check complete. Opening the updated delta report...', 'done');
+    const query = `origin=${encodeURIComponent(siteOrigin)}&environment=${encodeURIComponent(environment)}&view=delta`;
+    chrome.tabs.create({ url: chrome.runtime.getURL(`history.html?${query}`) });
+  } catch (error) {
+    setStatus(`Could not run delta check: ${error.message}`, 'error');
+  } finally {
+    runDeltaBtn.disabled = false;
+  }
 });

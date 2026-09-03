@@ -21,6 +21,9 @@ const automaticDeltaBtn = document.getElementById('automaticDeltaBtn');
 const manualDeltaBtn = document.getElementById('manualDeltaBtn');
 const baselineBuildSelect = document.getElementById('baselineBuildSelect');
 const comparisonBuildSelect = document.getElementById('comparisonBuildSelect');
+const refreshDeltaBtn = document.getElementById('refreshDeltaBtn');
+const deltaReportMeta = document.getElementById('deltaReportMeta');
+const deltaRefreshStatus = document.getElementById('deltaRefreshStatus');
 
 let coverageHistory = [];
 let uploadedDelta = null;
@@ -366,24 +369,47 @@ function renderUploadedDelta(deltaAnalysis) {
   }
 }
 
+function renderDeltaReportMeta(deltaAnalysis) {
+  deltaReportMeta.replaceChildren();
+  if (!deltaAnalysis) return;
+  const details = [
+    ['Last checked', formatDate(deltaAnalysis.createdAt)],
+    ['Build', deltaAnalysis.buildVersion || 'Current build'],
+    ['Baseline', deltaAnalysis.baselineRef || 'Saved baseline'],
+  ];
+  details.forEach(([label, value]) => {
+    const item = document.createElement('span');
+    const title = document.createElement('strong'); title.textContent = `${label}: `;
+    item.append(title, document.createTextNode(value));
+    deltaReportMeta.appendChild(item);
+  });
+}
+
 function renderCoverageDelta(records = getDeltaScopeHistory()) {
   deltaResults.replaceChildren();
-  document.body.classList.toggle('delta-uploaded', Boolean(uploadedDelta));
+  const automatic = deltaViewMode === 'automatic';
+  refreshDeltaBtn.disabled = !historySiteOrigin || !historyEnvironment;
+  refreshDeltaBtn.hidden = !historySiteOrigin || !historyEnvironment;
+  document.body.classList.toggle('delta-uploaded', Boolean(uploadedDelta) || automatic);
   if (uploadedDelta) {
-    deltaIntro.textContent = 'Automatic comparison of the current build against its saved baseline.';
+    deltaIntro.textContent = 'Automated code and coverage comparison for the selected environment.';
+    renderDeltaReportMeta(uploadedDelta);
     renderUploadedDelta(uploadedDelta);
     return;
   }
-  const automatic = deltaViewMode === 'automatic';
+  renderDeltaReportMeta(null);
   document.body.classList.toggle('delta-automatic', automatic);
   automaticDeltaBtn.setAttribute('aria-pressed', String(automatic));
   manualDeltaBtn.setAttribute('aria-pressed', String(!automatic));
-  deltaIntro.textContent = automatic
-    ? 'Automatically compares the newest detected build with the build immediately before it. Only functions introduced by the newest build are shown.'
-    : 'Choose two recorded build versions to compare their observed function coverage.';
+  if (automatic) {
+    deltaIntro.textContent = 'Automated code and coverage comparison for the selected environment.';
+    renderUploadedDelta({ buildVersion: 'the current build', baselineRef: 'its saved baseline', delta: {} });
+    return;
+  }
+  deltaIntro.textContent = 'Choose two recorded build versions to compare their observed function coverage.';
   if (!selectedBaselineBuild || !selectedComparisonBuild || selectedBaselineBuild === selectedComparisonBuild) {
     deltaResults.textContent = 'Coverage Delta will appear after coverage is captured for two detected builds.';
-    deltaResults.className = 'delta-note';
+    deltaResults.className = '';
     return;
   }
   const delta = getCoverageDelta(records);
@@ -766,4 +792,27 @@ baselineBuildSelect.addEventListener('change', () => { selectedBaselineBuild = b
 comparisonBuildSelect.addEventListener('change', () => { selectedComparisonBuild = comparisonBuildSelect.value; renderCoverageDelta(getDeltaScopeHistory()); });
 automaticDeltaBtn.addEventListener('click', () => { deltaViewMode = 'automatic'; renderHistory(); });
 manualDeltaBtn.addEventListener('click', () => { deltaViewMode = 'manual'; renderHistory(); });
+refreshDeltaBtn.addEventListener('click', async () => {
+  if (!historySiteOrigin || !historyEnvironment) return;
+  refreshDeltaBtn.disabled = true;
+  deltaRefreshStatus.className = 'delta-refresh-status';
+  deltaRefreshStatus.textContent = 'Running automated coverage and delta check…';
+  try {
+    const response = await fetch(`${BRIDGE_SERVER_URL}/run-delta-check`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteOrigin: historySiteOrigin, environment: historyEnvironment }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result?.error || `Run failed with ${response.status}`);
+    uploadedDelta = result.analysis || null;
+    deltaRefreshStatus.textContent = '';
+    renderHistory();
+  } catch (error) {
+    deltaRefreshStatus.className = 'delta-refresh-status error';
+    deltaRefreshStatus.textContent = `Could not refresh delta check: ${error.message}`;
+  } finally {
+    refreshDeltaBtn.disabled = false;
+  }
+});
 exportBtn.addEventListener('click', exportHistory); clearBtn.addEventListener('click', clearHistory); viewOverallBtn.addEventListener('click', showOverall); loadHistory();

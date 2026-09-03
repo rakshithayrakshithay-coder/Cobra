@@ -61,12 +61,13 @@
       background: #0a1f44;
       color: white;
     }
-    #deltaBtn {
+    #runDeltaBtn {
       width: 100%;
       margin-top: 8px;
-      background: #c8102e;
+      background: #2563eb;
       color: white;
     }
+    #runDeltaBtn:disabled { background: #9ca3af; cursor: not-allowed; }
     #status {
       margin-top: 10px;
       font-size: 12px;
@@ -209,7 +210,7 @@
     <button id="stopBtn" disabled>Stop</button>
   </div>
   <button id="historyBtn">View Full History</button>
-  <button id="deltaBtn">Delta Coverage</button>
+  <button id="runDeltaBtn">Run Delta Coverage</button>
   <div id="status"></div>
   <div id="results"></div>
 
