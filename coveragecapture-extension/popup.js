@@ -168,6 +168,14 @@ function setEnvironmentDisplay(environment) {
 
 async function refreshDetectedEnvironment() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.url?.startsWith(chrome.runtime.getURL('history.html'))) {
+    const environment = new URL(tab.url).searchParams.get('environment');
+    if (environment) {
+      const normalized = normalizeEnvironment(environment);
+      setEnvironmentDisplay(normalized);
+      return normalized;
+    }
+  }
   const environment = await detectEnvironment(tab?.id);
   setEnvironmentDisplay(environment);
   return environment;
