@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const { getDatabase, saveDatabase } = require('../db/database');
 
+function formatAdminAuditLabel(action) {
+  return `Admin action: ${action}`;
+}
+
 function requireAdmin(req, res, next) {
   if (!req.session || req.session.role !== 'admin') {
     return res.redirect('/login');

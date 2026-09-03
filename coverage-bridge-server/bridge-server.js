@@ -9,6 +9,8 @@ const {
   listCoverageSessions,
   removeCoverageSession,
   removeCoverageSessionsForOrigin,
+  saveDeltaCoverage,
+  getDeltaCoverage,
 } = require('./coverage-database');
 
 const app = express();
@@ -16,6 +18,21 @@ const port = 4000;
 
 app.use(cors());
 app.use(express.json({ limit: '25mb' }));
+
+app.post('/delta-analysis', (req, res) => {
+  const { siteOrigin = '', buildVersion = '', baselineRef = '', delta } = req.body || {};
+  if (!siteOrigin || !delta || typeof delta !== 'object') return res.status(400).json({ error: 'siteOrigin and delta are required.' });
+  const saved = saveDeltaCoverage({ siteOrigin, buildVersion, baselineRef, delta });
+  return res.status(201).json(saved);
+});
+
+app.get('/delta-analysis', (req, res) => {
+  const siteOrigin = String(req.query.origin || '');
+  if (!siteOrigin) return res.status(400).json({ error: 'origin is required.' });
+  const analysis = getDeltaCoverage(siteOrigin);
+  if (!analysis) return res.status(404).json({ error: 'No delta analysis found.' });
+  return res.json(analysis);
+});
 
 app.post('/manual-sessions', (req, res) => {
   const { testName = '', testDescription = '', testSuite = 'Manual', environment = 'Unspecified', buildVersion = '', siteOrigin = '' } = req.body || {};

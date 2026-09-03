@@ -1,11 +1,15 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { once } = require('events');
 const { chromium } = require('playwright');
 
 const root = path.resolve(__dirname, '..');
-const baseUrl = process.env.COVERAGE_BASE_URL || 'http://127.0.0.1:3000';
+const port = Number(process.env.COVERAGE_PORT || 3100);
+const baseUrl = process.env.COVERAGE_BASE_URL || `http://127.0.0.1:${port}`;
+const historyOrigin = process.env.COVERAGE_HISTORY_ORIGIN || new URL(baseUrl).origin;
 const artifacts = path.join(root, 'coverage-artifacts');
+const nodeCoverageDirectory = path.join(artifacts, 'node-v8-coverage');
 
 async function waitForServer() {
   for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -27,8 +31,22 @@ function filesFromCoverage(rawCoverage) {
   });
 }
 
+function readBackendCoverage() {
+  if (!fs.existsSync(nodeCoverageDirectory)) return [];
+  const projectPath = root.replace(/\\/g, '/').toLowerCase();
+  return fs.readdirSync(nodeCoverageDirectory).filter((file) => file.endsWith('.json')).flatMap((file) => {
+    try { return JSON.parse(fs.readFileSync(path.join(nodeCoverageDirectory, file), 'utf8')).result || []; }
+    catch { return []; }
+  }).filter((script) => String(script.url || '').replace(/\\/g, '/').toLowerCase().includes(projectPath));
+}
+
+async function stopServer(server) { if (server.exitCode !== null || server.signalCode) return; server.kill('SIGTERM'); await once(server, 'exit'); }
+
 async function run() {
-  const server = spawn(process.execPath, ['server.js'], { cwd: root, stdio: 'inherit' });
+  fs.rmSync(nodeCoverageDirectory, { recursive: true, force: true });
+  fs.mkdirSync(nodeCoverageDirectory, { recursive: true });
+  const server = spawn(process.execPath, ['server.js'], { cwd: root, stdio: 'inherit', env: { ...process.env, PORT: String(port), NODE_V8_COVERAGE: nodeCoverageDirectory } });
+  let stopped = false;
   try {
     await waitForServer();
     const browser = await chromium.launch({ headless: true });
@@ -54,14 +72,16 @@ async function run() {
     await cdp.send('Profiler.stopPreciseCoverage');
     await cdp.send('Profiler.disable');
     await browser.close();
+    await stopServer(server);
+    stopped = true;
     fs.mkdirSync(artifacts, { recursive: true });
     const timestamp = new Date().toISOString();
     fs.writeFileSync(path.join(artifacts, 'ci-coverage.json'), JSON.stringify({
       testName: 'CI regression coverage', testSuite: 'CI', environment: 'GitHub Actions',
-      buildVersion: process.env.GITHUB_SHA || process.env.BUILD_VERSION || 'local', siteOrigin: baseUrl,
-      startedAt: timestamp, stoppedAt: timestamp, coverage: rawCoverage.result, files: filesFromCoverage(rawCoverage.result),
+      buildVersion: process.env.GITHUB_SHA || process.env.BUILD_VERSION || 'local', siteOrigin: historyOrigin,
+      startedAt: timestamp, stoppedAt: timestamp, coverage: rawCoverage.result, files: filesFromCoverage(rawCoverage.result), backendCoverage: readBackendCoverage(),
     }, null, 2));
-  } finally { server.kill(); }
+  } finally { if (!stopped) await stopServer(server); }
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -36,6 +36,16 @@ database.exec(`
     FOREIGN KEY (job_id) REFERENCES coverage_sessions(job_id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS delta_coverage (
+    id INTEGER PRIMARY KEY,
+    site_origin TEXT NOT NULL DEFAULT '',
+    build_version TEXT NOT NULL DEFAULT '',
+    baseline_ref TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    delta_json TEXT NOT NULL,
+    UNIQUE(site_origin, build_version)
+  );
+
   CREATE INDEX IF NOT EXISTS coverage_files_job_id_idx ON coverage_files(job_id);
   CREATE INDEX IF NOT EXISTS coverage_sessions_started_at_idx ON coverage_sessions(started_at DESC);
 
@@ -80,6 +90,12 @@ const deleteSession = database.prepare('DELETE FROM coverage_sessions WHERE job_
 const deleteSessionsForOrigin = database.prepare('DELETE FROM coverage_sessions WHERE site_origin = ?');
 const sessionsWithoutOrigin = database.prepare("SELECT job_id FROM coverage_sessions WHERE site_origin = ''");
 const updateSessionOrigin = database.prepare('UPDATE coverage_sessions SET site_origin = ? WHERE job_id = ?');
+const upsertDeltaCoverage = database.prepare(`
+  INSERT INTO delta_coverage (site_origin, build_version, baseline_ref, created_at, delta_json)
+  VALUES (?, ?, ?, ?, ?)
+  ON CONFLICT(site_origin, build_version) DO UPDATE SET baseline_ref = excluded.baseline_ref, created_at = excluded.created_at, delta_json = excluded.delta_json
+`);
+const getLatestDeltaCoverage = database.prepare('SELECT * FROM delta_coverage WHERE site_origin = ? ORDER BY created_at DESC LIMIT 1');
 
 function parseJson(value, fallback) {
   try {
@@ -185,6 +201,17 @@ function removeCoverageSessionsForOrigin(siteOrigin) {
   return deleteSessionsForOrigin.run(siteOrigin).changes;
 }
 
+function saveDeltaCoverage({ siteOrigin = '', buildVersion = '', baselineRef = '', delta }) {
+  upsertDeltaCoverage.run(siteOrigin, buildVersion, baselineRef, new Date().toISOString(), JSON.stringify(delta));
+  return getDeltaCoverage(siteOrigin);
+}
+
+function getDeltaCoverage(siteOrigin) {
+  const row = getLatestDeltaCoverage.get(siteOrigin);
+  if (!row) return null;
+  return { siteOrigin: row.site_origin, buildVersion: row.build_version, baselineRef: row.baseline_ref, createdAt: row.created_at, delta: parseJson(row.delta_json, null) };
+}
+
 module.exports = {
   DATABASE_PATH,
   createSession,
@@ -193,4 +220,6 @@ module.exports = {
   listCoverageSessions,
   removeCoverageSession,
   removeCoverageSessionsForOrigin,
+  saveDeltaCoverage,
+  getDeltaCoverage,
 };
