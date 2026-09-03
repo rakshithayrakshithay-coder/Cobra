@@ -292,5 +292,33 @@
     "email": "raksh@gmail.com",
     "message": "i need to know about travel insurance",
     "timestamp": "2026-08-19T10:03:46.350Z"
+  },
+  {
+    "id": "MSG-MTJYKWXZ09N4",
+    "name": "CI Coverage",
+    "email": "ci@example.com",
+    "message": "This automated test exercises the contact form coverage flow.",
+    "timestamp": "2026-09-02T10:33:57.959Z"
+  },
+  {
+    "id": "MSG-MTJYPZ0W74MZ",
+    "name": "CI Coverage",
+    "email": "ci@example.com",
+    "message": "This automated test exercises the contact form coverage flow.",
+    "timestamp": "2026-09-02T10:37:53.936Z"
+  },
+  {
+    "id": "MSG-MTL2WIQBF6LO",
+    "name": "CI Coverage",
+    "email": "ci@example.com",
+    "message": "This automated test exercises the contact form coverage flow.",
+    "timestamp": "2026-09-03T05:22:44.051Z"
+  },
+  {
+    "id": "MSG-MTL6UY5VFPOV",
+    "name": "CI Coverage",
+    "email": "ci@example.com",
+    "message": "This automated test exercises the contact form coverage flow.",
+    "timestamp": "2026-09-03T07:13:29.203Z"
   }
 ]
