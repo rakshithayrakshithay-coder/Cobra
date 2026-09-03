@@ -32,7 +32,8 @@ const changed = [...added, ...modified.map((fn) => ({ ...fn, changeType: 'modifi
 const delta = { schemaVersion: 2, baselineRef: process.env.BASE_REF || 'saved baseline', comparisonRef: process.env.GITHUB_SHA || 'local', inventory: { baselineFunctions: previous.length, currentFunctions: latest.length }, functionsAdded: added, functionsModified: modified, functionsRemoved: removed, newFunctionsExecuted: changed.filter((fn) => fn.covered), newFunctionsUntested: changed.filter((fn) => !fn.covered), report };
 fs.writeFileSync(path.join(artifacts, 'coverage-delta.json'), JSON.stringify(delta, null, 2)); fs.writeFileSync(baselinePath, JSON.stringify(current, null, 2));
 const bridgeUrl = (process.env.COVERAGE_BRIDGE_URL || 'http://127.0.0.1:4000').replace(/\/$/, '');
-fetch(`${bridgeUrl}/delta-analysis`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ siteOrigin: report.siteOrigin, buildVersion: report.buildVersion, baselineRef: delta.baselineRef, delta }) })
+const environment = report.environment || process.env.COVERAGE_ENVIRONMENT || process.env.DEPLOYMENT_ENVIRONMENT || process.env.NODE_ENV || 'Development';
+fetch(`${bridgeUrl}/delta-analysis`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ siteOrigin: report.siteOrigin, environment, buildVersion: report.buildVersion, baselineRef: delta.baselineRef, delta }) })
   .then((response) => { if (!response.ok) throw new Error(`Bridge server returned ${response.status}`); console.log('Coverage Delta uploaded to the dashboard.'); })
   .catch((error) => console.warn(`Coverage Delta saved locally but was not uploaded: ${error.message}`));
 console.log(`Coverage Delta: ${added.length} added, ${modified.length} modified, ${removed.length} removed; ${delta.newFunctionsExecuted.length} executed; ${delta.newFunctionsUntested.length} untested.`);

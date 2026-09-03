@@ -19,4 +19,8 @@ assert.equal(database.removeCoverageSession('development-job', 'Development'), t
 assert.deepEqual(database.listCoverageSessions(origin, 'QA').map((session) => session.jobId), ['qa-job']);
 assert.throws(() => database.createSession({ jobId: 'invalid-job', testName: 'invalid', environment: 'Unspecified', siteOrigin: origin, startedAt: '2026-01-03T00:00:00.000Z' }), /environment is required/);
 
+database.saveDeltaCoverage({ siteOrigin: origin, environment: 'Development', buildVersion: '1.0.1', delta: { functionsAdded: [] } });
+assert.equal(database.getDeltaCoverage(origin, 'Development').environment, 'Development');
+assert.equal(database.getDeltaCoverage(origin, 'QA'), null);
+
 console.log('Environment coverage isolation verified.');

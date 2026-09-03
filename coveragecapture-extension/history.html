@@ -467,10 +467,13 @@
     .delta-mode-button { min-height: 36px; padding: 7px 12px; border: 1px solid #cbd9e9; border-radius: 999px; color: #48627f; background: #fff; font-size: 12px; font-weight: 700; }
     .delta-mode-button[aria-pressed="true"] { border-color: var(--navy); color: #fff; background: var(--navy); box-shadow: 0 3px 8px rgba(10, 31, 68, .15); }
     body.delta-automatic .delta-controls { display: none; }
+    body.delta-uploaded .delta-mode-switch,
+    body.delta-uploaded .delta-controls { display: none; }
     .delta-controls { display: grid; grid-template-columns: repeat(2, minmax(180px, 260px)); gap: 14px; margin-top: 14px; }
     .delta-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
     .delta-metric { padding: 18px; border-radius: 9px; background: #fff; border: 1px solid #e1e8f0; border-top: 4px solid #94a3b8; box-shadow: 0 5px 14px rgba(15, 23, 42, .05); }
     .delta-metric.added { border-top-color: #2563eb; }
+    .delta-metric.modified { border-top-color: #64748b; }
     .delta-metric.executed { border-top-color: #16a34a; }
     .delta-metric.untested { border-top-color: #dc2626; }
     .delta-value { color: var(--navy); font-size: 30px; font-weight: 800; line-height: 1; }

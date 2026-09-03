@@ -23,6 +23,7 @@ const baselineBuildSelect = document.getElementById('baselineBuildSelect');
 const comparisonBuildSelect = document.getElementById('comparisonBuildSelect');
 
 let coverageHistory = [];
+let uploadedDelta = null;
 let selectedSort = 'date-desc';
 let selectedBaselineBuild = '';
 let selectedComparisonBuild = '';
@@ -335,8 +336,44 @@ function renderBuildFunctionSnapshot(label, buildVersion, snapshot) {
   return section;
 }
 
+function renderUploadedDelta(deltaAnalysis) {
+  const delta = deltaAnalysis.delta || {};
+  const added = Array.isArray(delta.functionsAdded) ? delta.functionsAdded : [];
+  const modified = Array.isArray(delta.functionsModified) ? delta.functionsModified : [];
+  const executedIds = new Set((delta.newFunctionsExecuted || []).map((fn) => fn.id));
+  const untestedIds = new Set((delta.newFunctionsUntested || []).map((fn) => fn.id));
+  const changed = [...added, ...modified].map((fn) => ({ ...fn, covered: executedIds.has(fn.id) && !untestedIds.has(fn.id), location: fn.line ? `line ${fn.line}` : '' }));
+  const metrics = [
+    [added.length, 'Functions added', 'added'],
+    [modified.length, 'Functions modified', 'modified'],
+    [executedIds.size, 'Changed functions executed', 'executed'],
+    [untestedIds.size, 'Changed functions untested', 'untested'],
+  ];
+  const summary = document.createElement('div'); summary.className = 'delta-summary';
+  metrics.forEach(([value, label, tone]) => {
+    const metric = document.createElement('div'); metric.className = `delta-metric ${tone}`;
+    const big = document.createElement('div'); big.className = 'delta-value'; big.textContent = value;
+    const title = document.createElement('div'); title.className = 'delta-label'; title.textContent = label;
+    metric.append(big, title); summary.appendChild(metric);
+  });
+  const note = document.createElement('p'); note.className = 'delta-note';
+  note.textContent = `Whole-app AST delta for ${deltaAnalysis.buildVersion || 'the current build'} against ${deltaAnalysis.baselineRef || 'its saved baseline'}. Includes frontend and backend files.`;
+  deltaResults.className = '';
+  deltaResults.append(summary, note);
+  if (changed.length) {
+    const heading = document.createElement('p'); heading.className = 'delta-note'; heading.textContent = 'Changed functions';
+    deltaResults.append(heading, renderDeltaFunctionList(changed));
+  }
+}
+
 function renderCoverageDelta(records = getDeltaScopeHistory()) {
   deltaResults.replaceChildren();
+  document.body.classList.toggle('delta-uploaded', Boolean(uploadedDelta));
+  if (uploadedDelta) {
+    deltaIntro.textContent = 'Automatic comparison of the current build against its saved baseline.';
+    renderUploadedDelta(uploadedDelta);
+    return;
+  }
   const automatic = deltaViewMode === 'automatic';
   document.body.classList.toggle('delta-automatic', automatic);
   automaticDeltaBtn.setAttribute('aria-pressed', String(automatic));
@@ -576,6 +613,8 @@ async function loadHistory() {
         durationMs: Date.parse(session.stoppedAt) - Date.parse(session.startedAt),
         capturedAt: session.stoppedAt || session.startedAt,
       })) : [];
+      const deltaResponse = await fetch(`${BRIDGE_SERVER_URL}/delta-analysis?origin=${encodeURIComponent(historySiteOrigin)}&environment=${encodeURIComponent(historyEnvironment)}`);
+      uploadedDelta = deltaResponse.ok ? await deltaResponse.json() : null;
       renderHistory();
       return;
     } catch (error) {
@@ -583,6 +622,7 @@ async function loadHistory() {
     }
   }
   const result = await chrome.storage.local.get(STORAGE_KEY);
+  uploadedDelta = null;
   const savedHistory = Array.isArray(result[STORAGE_KEY]) ? result[STORAGE_KEY] : [];
   let migrated = false;
   coverageHistory = savedHistory.map((record) => {
