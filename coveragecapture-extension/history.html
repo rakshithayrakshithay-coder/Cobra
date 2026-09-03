@@ -463,6 +463,10 @@
     .coverage-list { padding: 42px 50px; border-top: 1px solid #e8edf4; background: #fff; }
     .delta-section { margin-top: 18px; padding: 26px; border: 1px solid #d5e1f0; border-radius: 12px; background: linear-gradient(135deg, #f8fbff 0%, #eef6ff 100%); box-shadow: 0 16px 34px rgba(10, 31, 68, .08); }
     .delta-heading { margin: 0 0 6px; color: var(--navy); font-size: 22px; letter-spacing: -.02em; }
+    .delta-mode-switch { display: flex; gap: 8px; margin-top: 18px; }
+    .delta-mode-button { min-height: 36px; padding: 7px 12px; border: 1px solid #cbd9e9; border-radius: 999px; color: #48627f; background: #fff; font-size: 12px; font-weight: 700; }
+    .delta-mode-button[aria-pressed="true"] { border-color: var(--navy); color: #fff; background: var(--navy); box-shadow: 0 3px 8px rgba(10, 31, 68, .15); }
+    body.delta-automatic .delta-controls { display: none; }
     .delta-controls { display: grid; grid-template-columns: repeat(2, minmax(180px, 260px)); gap: 14px; margin-top: 14px; }
     .delta-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
     .delta-metric { padding: 18px; border-radius: 9px; background: #fff; border: 1px solid #e1e8f0; border-top: 4px solid #94a3b8; box-shadow: 0 5px 14px rgba(15, 23, 42, .05); }
@@ -561,7 +565,15 @@
         <p class="section-note">Based on functions observed across all captured test runs so far — not a full static analysis of the entire codebase.</p>
         <section class="delta-section" aria-labelledby="deltaHeading">
           <h2 id="deltaHeading" class="delta-heading">Coverage Delta</h2>
-          <p class="section-note">Automatically compares the newest detected build with the build immediately before it. Only functions introduced by the newest build are shown.</p>
+          <p id="deltaIntro" class="section-note">Automatically compares the newest detected build with the build immediately before it. Only functions introduced by the newest build are shown.</p>
+          <div class="delta-mode-switch" role="group" aria-label="Coverage delta mode">
+            <button id="automaticDeltaBtn" class="delta-mode-button" type="button" aria-pressed="true">Automatic delta</button>
+            <button id="manualDeltaBtn" class="delta-mode-button" type="button" aria-pressed="false">Compare recorded builds</button>
+          </div>
+          <div class="delta-controls">
+            <div class="filter-wrap"><label for="baselineBuildSelect">Baseline Build</label><select id="baselineBuildSelect" class="filter-select"></select></div>
+            <div class="filter-wrap"><label for="comparisonBuildSelect">Comparison Build</label><select id="comparisonBuildSelect" class="filter-select"></select></div>
+          </div>
           <div id="deltaResults" aria-live="polite"></div>
         </section>
         <div class="coverage-tabs" role="tablist" aria-label="Coverage view">

@@ -16,12 +16,18 @@ const dashboardCards = document.getElementById('dashboardCards');
 const overallFiles = document.getElementById('overallFiles');
 const viewOverallBtn = document.getElementById('viewOverallBtn');
 const deltaResults = document.getElementById('deltaResults');
+const deltaIntro = document.getElementById('deltaIntro');
+const automaticDeltaBtn = document.getElementById('automaticDeltaBtn');
+const manualDeltaBtn = document.getElementById('manualDeltaBtn');
+const baselineBuildSelect = document.getElementById('baselineBuildSelect');
+const comparisonBuildSelect = document.getElementById('comparisonBuildSelect');
 
 let coverageHistory = [];
 let selectedSort = 'date-desc';
 let selectedFilters = { testSuite: '', environment: '', buildVersion: '' };
 let selectedBaselineBuild = '';
 let selectedComparisonBuild = '';
+let deltaViewMode = 'automatic';
 const historyParameters = new URLSearchParams(window.location.search);
 const historySiteOrigin = historyParameters.get('origin');
 const deltaOnlyView = historyParameters.get('view') === 'delta';
@@ -207,6 +213,21 @@ function selectLatestBuildPair(records) {
   selectedBaselineBuild = builds[1] || '';
 }
 
+function populateDeltaBuildOptions(records) {
+  const builds = getBuildVersions(records);
+  [baselineBuildSelect, comparisonBuildSelect].forEach((select) => {
+    select.replaceChildren(new Option('Select a build', ''));
+    builds.forEach((build) => select.add(new Option(build, build)));
+    select.disabled = builds.length < 2;
+  });
+  if (!builds.includes(selectedComparisonBuild)) selectedComparisonBuild = builds[0] || '';
+  if (!builds.includes(selectedBaselineBuild) || selectedBaselineBuild === selectedComparisonBuild) {
+    selectedBaselineBuild = builds.find((build) => build !== selectedComparisonBuild) || '';
+  }
+  baselineBuildSelect.value = selectedBaselineBuild;
+  comparisonBuildSelect.value = selectedComparisonBuild;
+}
+
 function functionIdentity(file, fn, index) {
   const name = String(fn?.name || '(anonymous)').trim();
   const location = String(fn?.location || '').trim();
@@ -307,6 +328,13 @@ function renderBuildFunctionSnapshot(label, buildVersion, snapshot) {
 
 function renderCoverageDelta(records = getDeltaScopeHistory()) {
   deltaResults.replaceChildren();
+  const automatic = deltaViewMode === 'automatic';
+  document.body.classList.toggle('delta-automatic', automatic);
+  automaticDeltaBtn.setAttribute('aria-pressed', String(automatic));
+  manualDeltaBtn.setAttribute('aria-pressed', String(!automatic));
+  deltaIntro.textContent = automatic
+    ? 'Automatically compares the newest detected build with the build immediately before it. Only functions introduced by the newest build are shown.'
+    : 'Choose two recorded build versions to compare their observed function coverage.';
   if (!selectedBaselineBuild || !selectedComparisonBuild || selectedBaselineBuild === selectedComparisonBuild) {
     deltaResults.textContent = 'Coverage Delta will appear after coverage is captured for two detected builds.';
     deltaResults.className = 'delta-note';
@@ -473,7 +501,9 @@ function createDetailsRow(record) {
 function renderHistory() {
   const siteHistory = getSiteHistory();
   populateFilterOptions(siteHistory);
-  selectLatestBuildPair(getDeltaScopeHistory(siteHistory));
+  const deltaRecords = getDeltaScopeHistory(siteHistory);
+  if (deltaViewMode === 'automatic') selectLatestBuildPair(deltaRecords);
+  else populateDeltaBuildOptions(deltaRecords);
   const filtered = getFilteredHistory(siteHistory);
   const sorted = sortHistoryRecords(filtered);
   historyBody.replaceChildren(); emptyState.style.display = sorted.length ? 'none' : 'block'; exportBtn.disabled = !siteHistory.length; clearBtn.disabled = !siteHistory.length;
@@ -509,7 +539,7 @@ function renderHistory() {
     historyBody.append(row, createDetailsRow(record));
   });
   renderDashboard(filtered);
-  renderCoverageDelta(getDeltaScopeHistory(siteHistory));
+  renderCoverageDelta(deltaRecords);
   if (focusCoverageDelta) {
     focusCoverageDelta = false;
     if (!deltaOnlyView) {
@@ -680,4 +710,8 @@ sortSelect.addEventListener('change', () => { selectedSort = sortSelect.value; r
 testSuiteFilter.addEventListener('change', () => { selectedFilters.testSuite = testSuiteFilter.value; renderHistory(); });
 environmentFilter.addEventListener('change', () => { selectedFilters.environment = environmentFilter.value; renderHistory(); });
 buildVersionFilter.addEventListener('change', () => { selectedFilters.buildVersion = buildVersionFilter.value; renderHistory(); });
+baselineBuildSelect.addEventListener('change', () => { selectedBaselineBuild = baselineBuildSelect.value; renderCoverageDelta(getDeltaScopeHistory()); });
+comparisonBuildSelect.addEventListener('change', () => { selectedComparisonBuild = comparisonBuildSelect.value; renderCoverageDelta(getDeltaScopeHistory()); });
+automaticDeltaBtn.addEventListener('click', () => { deltaViewMode = 'automatic'; renderHistory(); });
+manualDeltaBtn.addEventListener('click', () => { deltaViewMode = 'manual'; renderHistory(); });
 exportBtn.addEventListener('click', exportHistory); clearBtn.addEventListener('click', clearHistory); viewOverallBtn.addEventListener('click', showOverall); loadHistory();
