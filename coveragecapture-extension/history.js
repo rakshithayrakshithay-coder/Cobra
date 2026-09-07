@@ -26,6 +26,7 @@ const deltaReportMeta = document.getElementById('deltaReportMeta');
 const deltaRefreshStatus = document.getElementById('deltaRefreshStatus');
 
 let coverageHistory = [];
+let bridgeHistoryLoaded = false;
 let uploadedDelta = null;
 let selectedSort = 'date-desc';
 let selectedBaselineBuild = '';
@@ -33,7 +34,10 @@ let selectedComparisonBuild = '';
 let deltaViewMode = 'automatic';
 const historyParameters = new URLSearchParams(window.location.search);
 const historySiteOrigin = historyParameters.get('origin');
-const historyEnvironment = normalizeEnvironment(historyParameters.get('environment'));
+// Older History links did not include an environment. Default local usage to
+// Development so the report remains isolated instead of falling back to an
+// empty, unscoped view.
+const historyEnvironment = normalizeEnvironment(historyParameters.get('environment') || 'development');
 let selectedFilters = { testSuite: '', environment: historyEnvironment || '', buildVersion: '' };
 const deltaOnlyView = historyParameters.get('view') === 'delta';
 let focusCoverageDelta = deltaOnlyView;
@@ -49,8 +53,12 @@ function normalizeEnvironment(value) {
 }
 
 function getSiteHistory() {
+  // The bridge request is already scoped to the selected origin/environment.
+  // Keep its results intact: UI labels use "Development" while the bridge
+  // stores the canonical value "development".
+  if (bridgeHistoryLoaded) return coverageHistory;
   return historySiteOrigin && historyEnvironment
-    ? coverageHistory.filter((record) => record.siteOrigin === historySiteOrigin && getRecordMetadata(record).environment === historyEnvironment)
+    ? coverageHistory.filter((record) => record.siteOrigin === historySiteOrigin && normalizeEnvironment(getRecordMetadata(record).environment) === historyEnvironment)
     : [];
 }
 
@@ -340,15 +348,31 @@ function renderBuildFunctionSnapshot(label, buildVersion, snapshot) {
 }
 
 function renderUploadedDelta(deltaAnalysis) {
+  const cycles = Array.isArray(deltaAnalysis.testingCycles) ? deltaAnalysis.testingCycles : [];
+  if (cycles.length) {
+    const current = cycles.find((cycle) => cycle.status === 'pending') || null;
+    const history = cycles.filter((cycle) => cycle.status === 'completed');
+    deltaResults.replaceChildren(renderTestingCycle(current, 'Current Testing Cycle'));
+    if (history.length) {
+      const heading = document.createElement('h3'); heading.className = 'testing-history-heading'; heading.textContent = 'Testing History';
+      const list = document.createElement('div'); list.className = 'testing-history';
+      history.forEach((cycle) => list.append(renderTestingCycle(cycle, `Cycle ${cycle.id}`)));
+      deltaResults.append(heading, list);
+    }
+    return;
+  }
   const delta = deltaAnalysis.delta || {};
   const added = Array.isArray(delta.functionsAdded) ? delta.functionsAdded : [];
   const modified = Array.isArray(delta.functionsModified) ? delta.functionsModified : [];
   const executedIds = new Set((delta.newFunctionsExecuted || []).map((fn) => fn.id));
   const untestedIds = new Set((delta.newFunctionsUntested || []).map((fn) => fn.id));
   const changed = [...added, ...modified].map((fn) => ({ ...fn, covered: executedIds.has(fn.id) && !untestedIds.has(fn.id), location: fn.line ? `line ${fn.line}` : '' }));
+  const pendingAdded = added.filter((fn) => untestedIds.has(fn.id));
+  const pendingModified = modified.filter((fn) => untestedIds.has(fn.id));
+  const pendingChanged = changed.filter((fn) => untestedIds.has(fn.id));
   const metrics = [
-    [added.length, 'Functions added', 'added'],
-    [modified.length, 'Functions modified', 'modified'],
+    [pendingAdded.length, 'Functions added', 'added'],
+    [pendingModified.length, 'Functions modified', 'modified'],
     [executedIds.size, 'Changed functions executed', 'executed'],
     [untestedIds.size, 'Changed functions untested', 'untested'],
   ];
@@ -360,13 +384,34 @@ function renderUploadedDelta(deltaAnalysis) {
     metric.append(big, title); summary.appendChild(metric);
   });
   const note = document.createElement('p'); note.className = 'delta-note';
-  note.textContent = `Whole-app AST delta for ${deltaAnalysis.buildVersion || 'the current build'} against ${deltaAnalysis.baselineRef || 'its saved baseline'}. Includes frontend and backend files.`;
+  note.textContent = untestedIds.size
+    ? `Pending changes from the saved baseline: ${pendingAdded.length} added and ${pendingModified.length} modified functions still require testing.`
+    : 'All changes from the saved baseline have been tested. The next code change starts a new testing cycle.';
   deltaResults.className = '';
   deltaResults.append(summary, note);
-  if (changed.length) {
-    const heading = document.createElement('p'); heading.className = 'delta-note'; heading.textContent = 'Changed functions';
-    deltaResults.append(heading, renderDeltaFunctionList(changed));
+  if (pendingChanged.length) {
+    const heading = document.createElement('p'); heading.className = 'delta-note'; heading.textContent = 'Pending changed functions';
+    deltaResults.append(heading, renderDeltaFunctionList(pendingChanged));
   }
+}
+
+function renderTestingCycle(cycle, title) {
+  const section = document.createElement('section'); section.className = 'testing-cycle';
+  const heading = document.createElement('h3'); heading.textContent = title;
+  if (!cycle) {
+    const note = document.createElement('p'); note.className = 'delta-note'; note.textContent = 'No active testing cycle. The next detected code change will start one.';
+    section.append(heading, note); return section;
+  }
+  const metrics = [
+    [cycle.added, 'Functions added', 'added'], [cycle.modified, 'Functions modified', 'modified'],
+    [cycle.tested, 'Functions tested', 'executed'], [cycle.untested, 'Functions untested', 'untested'],
+    [cycle.status === 'completed' ? 'Completed' : 'Pending', 'Status', cycle.status],
+  ];
+  const grid = document.createElement('div'); grid.className = 'delta-summary';
+  metrics.forEach(([value, label, tone]) => { const card = document.createElement('div'); card.className = `delta-metric ${tone}`; const big = document.createElement('div'); big.className = 'delta-value'; big.textContent = value; const labelEl = document.createElement('div'); labelEl.className = 'delta-label'; labelEl.textContent = label; card.append(big, labelEl); grid.append(card); });
+  section.append(heading, grid);
+  if (cycle.untested) section.append(renderDeltaFunctionList(cycle.functions || []));
+  return section;
 }
 
 function renderDeltaReportMeta(deltaAnalysis) {
@@ -639,6 +684,7 @@ async function loadHistory() {
         durationMs: Date.parse(session.stoppedAt) - Date.parse(session.startedAt),
         capturedAt: session.stoppedAt || session.startedAt,
       })) : [];
+      bridgeHistoryLoaded = true;
       const deltaResponse = await fetch(`${BRIDGE_SERVER_URL}/delta-analysis?origin=${encodeURIComponent(historySiteOrigin)}&environment=${encodeURIComponent(historyEnvironment)}`);
       uploadedDelta = deltaResponse.ok ? await deltaResponse.json() : null;
       renderHistory();
