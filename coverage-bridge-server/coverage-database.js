@@ -58,6 +58,17 @@ database.exec(`
     UNIQUE(site_origin, environment, build_version)
   );
 
+  CREATE TABLE IF NOT EXISTS testing_cycles (
+    id INTEGER PRIMARY KEY,
+    site_origin TEXT NOT NULL,
+    environment TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'completed')),
+    functions_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT
+  );
+
   CREATE INDEX IF NOT EXISTS coverage_files_job_id_idx ON coverage_files(job_id);
   CREATE INDEX IF NOT EXISTS coverage_sessions_started_at_idx ON coverage_sessions(started_at DESC);
 
@@ -83,6 +94,7 @@ if (!sessionColumns.some((column) => column.name === 'build_version')) {
 database.exec('CREATE INDEX IF NOT EXISTS coverage_sessions_site_origin_idx ON coverage_sessions(site_origin)');
 database.exec('CREATE INDEX IF NOT EXISTS coverage_sessions_origin_environment_started_at_idx ON coverage_sessions(site_origin, environment, started_at DESC)');
 database.exec('CREATE INDEX IF NOT EXISTS delta_coverage_environment_idx ON delta_coverage_by_environment(site_origin, environment, created_at DESC)');
+database.exec('CREATE INDEX IF NOT EXISTS testing_cycles_scope_idx ON testing_cycles(site_origin, environment, id DESC)');
 
 const insertSession = database.prepare(`
   INSERT INTO coverage_sessions (job_id, status, test_name, test_description, test_suite, environment, build_version, site_origin, started_at)
@@ -110,6 +122,10 @@ const upsertDeltaCoverage = database.prepare(`
   ON CONFLICT(site_origin, environment, build_version) DO UPDATE SET baseline_ref = excluded.baseline_ref, created_at = excluded.created_at, delta_json = excluded.delta_json
 `);
 const getLatestDeltaCoverage = database.prepare('SELECT * FROM delta_coverage_by_environment WHERE site_origin = ? AND environment = ? ORDER BY created_at DESC LIMIT 1');
+const getActiveCycle = database.prepare("SELECT * FROM testing_cycles WHERE site_origin = ? AND environment = ? AND status = 'pending' ORDER BY id DESC LIMIT 1");
+const insertCycle = database.prepare("INSERT INTO testing_cycles (site_origin, environment, status, functions_json, created_at, updated_at) VALUES (?, ?, 'pending', ?, ?, ?)");
+const updateCycle = database.prepare('UPDATE testing_cycles SET functions_json = ?, status = ?, updated_at = ?, completed_at = ? WHERE id = ?');
+const listCycles = database.prepare('SELECT * FROM testing_cycles WHERE site_origin = ? AND environment = ? ORDER BY id DESC');
 
 function parseJson(value, fallback) {
   try {
@@ -219,7 +235,23 @@ function removeCoverageSessionsForOrigin(siteOrigin, environment) {
 function saveDeltaCoverage({ siteOrigin = '', environment, buildVersion = '', baselineRef = '', delta }) {
   const normalizedEnvironment = requireEnvironment(environment);
   upsertDeltaCoverage.run(siteOrigin, normalizedEnvironment, buildVersion, baselineRef, new Date().toISOString(), JSON.stringify(delta));
-  return getDeltaCoverage(siteOrigin, normalizedEnvironment);
+  const changed = [...(delta.functionsAdded || []).map((fn) => ({ ...fn, type: 'added' })), ...(delta.functionsModified || []).map((fn) => ({ ...fn, type: 'modified' }))];
+  const executed = new Set((delta.newFunctionsExecuted || []).map((fn) => fn.logicalId || fn.id));
+  let active = getActiveCycle.get(siteOrigin, normalizedEnvironment);
+  if (changed.length || active) {
+    const previous = new Map((parseJson(active?.functions_json, []) || []).map((fn) => [fn.key, fn]));
+    const functions = changed.map((fn) => {
+      const key = fn.logicalId || fn.id; const prior = previous.get(key);
+      const tested = executed.has(key) || Boolean(prior?.tested && prior.hash === fn.hash);
+      return { key, id: fn.id, hash: fn.hash, name: fn.name, file: fn.file, line: fn.line, type: prior?.type || fn.type, tested };
+    });
+    if (functions.length) {
+      const complete = functions.every((fn) => fn.tested); const now = new Date().toISOString();
+      if (!active) { insertCycle.run(siteOrigin, normalizedEnvironment, JSON.stringify(functions), now, now); active = getActiveCycle.get(siteOrigin, normalizedEnvironment); }
+      if (active) updateCycle.run(JSON.stringify(functions), complete ? 'completed' : 'pending', now, complete ? now : null, active.id);
+    }
+  }
+  return { ...getDeltaCoverage(siteOrigin, normalizedEnvironment), testingCycles: getTestingCycles(siteOrigin, normalizedEnvironment) };
 }
 
 function getDeltaCoverage(siteOrigin, environment) {
@@ -227,6 +259,14 @@ function getDeltaCoverage(siteOrigin, environment) {
   if (!row) return null;
   return { siteOrigin: row.site_origin, environment: row.environment, buildVersion: row.build_version, baselineRef: row.baseline_ref, createdAt: row.created_at, delta: parseJson(row.delta_json, null) };
 }
+
+function cycleSummary(row) {
+  const functions = parseJson(row.functions_json, []); const pending = functions.filter((fn) => !fn.tested);
+  return { id: row.id, status: row.status, createdAt: row.created_at, completedAt: row.completed_at,
+    added: pending.filter((fn) => fn.type === 'added').length, modified: pending.filter((fn) => fn.type === 'modified').length,
+    tested: functions.filter((fn) => fn.tested).length, untested: pending.length, functions: pending };
+}
+function getTestingCycles(siteOrigin, environment) { return listCycles.all(siteOrigin, requireEnvironment(environment)).map(cycleSummary); }
 
 module.exports = {
   DATABASE_PATH,
@@ -238,4 +278,5 @@ module.exports = {
   removeCoverageSessionsForOrigin,
   saveDeltaCoverage,
   getDeltaCoverage,
+  getTestingCycles,
 };

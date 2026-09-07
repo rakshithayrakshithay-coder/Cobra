@@ -484,6 +484,8 @@
     .delta-metric.modified { border-top-color: #64748b; }
     .delta-metric.executed { border-top-color: #16a34a; }
     .delta-metric.untested { border-top-color: #dc2626; }
+    .delta-metric.pending { border-top-color: #d97706; }
+    .delta-metric.completed { border-top-color: #16a34a; }
     .delta-value { color: var(--navy); font-size: 30px; font-weight: 800; line-height: 1; }
     .delta-label { margin-top: 5px; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
     .delta-note { margin: 14px 0 0; color: var(--muted); font-size: 12px; }
@@ -500,6 +502,10 @@
     .delta-build-heading { margin: 0; color: var(--navy); font-size: 15px; }
     .delta-build-version { margin: 6px 0 0; color: var(--red); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; overflow-wrap: anywhere; }
     .delta-build .delta-note { margin-top: 8px; }
+    .testing-cycle { margin-top: 18px; }
+    .testing-cycle h3, .testing-history-heading { margin: 0; color: var(--navy); font-size: 15px; }
+    .testing-history-heading { margin-top: 26px; }
+    .testing-history { display: grid; gap: 18px; }
     body:not(.delta-only) .delta-section { display: none; }
     body.delta-only main { max-width: 1680px; padding-top: 32px; }
     body.delta-only .toolbar,

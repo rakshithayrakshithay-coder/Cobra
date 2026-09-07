@@ -2,38 +2,6 @@
  * TravelTrust Insurance — Frontend Scripts
  */
 
-// Intentionally left unused so the Coverage Delta check can report a new untested function.
-function coverageDeltaVerificationMarker() {
-  return 'coverage-delta-verification-v4';
-}
-
-function formatCoverageDeltaStatus(changedFunctionCount) {
-  return `${changedFunctionCount} changed function${changedFunctionCount === 1 ? '' : 's'}`;
-}
-
-function hasCoverageDeltaChanges(changedFunctionCount) {
-  return changedFunctionCount > 0;
-}
-
-// Quick-quote helpers keep the homepage validation consistent and are
-// intentionally separate so coverage can identify each behaviour clearly.
-function normalizeQuickQuoteZipCode(zipCode) {
-  return String(zipCode || '').trim().replace(/\s+/g, '');
-}
-
-function getQuickQuoteValidationMessage({ zipCode, insuranceType }) {
-  if (!/^\d{5}$/.test(zipCode)) return 'Please enter a valid 5-digit ZIP code.';
-  if (!insuranceType) return 'Please select an insurance type.';
-  return '';
-}
-
-function createQuickQuotePayload(formData) {
-  return {
-    zipCode: normalizeQuickQuoteZipCode(formData.get('zipCode')),
-    insuranceType: String(formData.get('insuranceType') || '').trim()
-  };
-}
-
 function displayLoginErrorMessage(panel, message) {
   let errorBox = panel.querySelector('.login-error');
 
@@ -76,18 +44,44 @@ async function sendLoginRequest(form, payload, fallbackError) {
   return data;
 }
 
+function clearStaleNavigationMarkers(navigationLinks) {
+  for (const link of navigationLinks) {
+    link.removeAttribute('aria-current');
+  }
+}
+
+function normalizeNavigationPath(pathname) {
+  return pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+}
+
+function markCurrentNavigationLink() {
+  const currentPath = normalizeNavigationPath(window.location.pathname);
+  const navigationLinks = document.querySelectorAll('.nav-links a');
+
+  clearStaleNavigationMarkers(navigationLinks);
+
+  for (const link of navigationLinks) {
+    if (normalizeNavigationPath(link.getAttribute('href') || '') === currentPath) {
+      link.setAttribute('aria-current', 'page');
+    }
+  }
+}
+
 async function signInAdministrator(event) {
   event.preventDefault();
 
   const form = event.currentTarget;
   const panel = document.getElementById('admin-login-panel');
-  const formData = new FormData(form);
 
   try {
-    const data = await sendLoginRequest(form, {
-      username: formData.get('username'),
-      password: formData.get('password')
-    }, 'Invalid username or password');
+    const data = await sendLoginRequest(
+      form,
+      {
+        username: new FormData(form).get('username'),
+        password: new FormData(form).get('password')
+      },
+      'Invalid username or password'
+    );
 
     window.location.href = data.redirect || '/admin/claims';
   } catch (err) {
@@ -118,6 +112,8 @@ window.signInAdministrator = signInAdministrator;
 window.signInPolicyholder = signInPolicyholder;
 
 const initializePageInteractions = function initializePageInteractions() {
+
+  markCurrentNavigationLink();
 
   // ==========================================
   // MEGA MENU DROPDOWN TOGGLE
@@ -268,11 +264,17 @@ const initializePageInteractions = function initializePageInteractions() {
     const submitQuickQuoteRequest = async function submitQuickQuoteRequest(e) {
       e.preventDefault();
       const formData = new FormData(this);
-      const payload = createQuickQuotePayload(formData);
-      const validationMessage = getQuickQuoteValidationMessage(payload);
+      const payload = {
+        zipCode: formData.get('zipCode'),
+        insuranceType: formData.get('insuranceType')
+      };
 
-      if (validationMessage) {
-        displayQuickQuoteResponse(validationMessage, 'error');
+      if (!payload.zipCode || payload.zipCode.length !== 5) {
+        displayQuickQuoteResponse('Please enter a valid 5-digit ZIP code.', 'error');
+        return;
+      }
+      if (!payload.insuranceType) {
+        displayQuickQuoteResponse('Please select an insurance type.', 'error');
         return;
       }
 
@@ -469,35 +471,6 @@ const initializePageInteractions = function initializePageInteractions() {
       contactResponse.className = 'response-area ' + type;
       contactResponse.style.display = 'block';
     }
-  }
-
-  // ==========================================
-  // CONTACT MESSAGE CHARACTER COUNTER
-  // ==========================================
-  const contactMessageInput = document.getElementById('contactMessage');
-  const contactMessageHint = document.getElementById('contactMessageHint');
-
-  function getContactMessageCount(message) {
-    return String(message || '').trim().length;
-  }
-
-  function isContactMessageNearLimit(charactersRemaining) {
-    return charactersRemaining <= 50;
-  }
-
-  function updateContactMessageHint() {
-    if (!contactMessageInput || !contactMessageHint) return;
-    const characterCount = getContactMessageCount(contactMessageInput.value);
-    const characterLimit = Number(contactMessageInput.maxLength) || 500;
-    const charactersRemaining = characterLimit - characterCount;
-
-    contactMessageHint.textContent = `${charactersRemaining} characters remaining`;
-    contactMessageHint.classList.toggle('form-helper-warning', isContactMessageNearLimit(charactersRemaining));
-  }
-
-  if (contactMessageInput && contactMessageHint) {
-    contactMessageInput.addEventListener('input', updateContactMessageHint);
-    updateContactMessageHint();
   }
 
   // ==========================================

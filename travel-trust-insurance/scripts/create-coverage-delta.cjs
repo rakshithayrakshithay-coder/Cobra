@@ -32,10 +32,16 @@ const added = latest.filter((fn) => !priorIds.has(fn.id) && !priorLogical.has(fn
 const changed = [...added, ...modified.map((fn) => ({ ...fn, changeType: 'modified' }))].map((fn) => ({ ...fn, covered: isCovered(fn) }));
 const delta = { schemaVersion: 2, baselineRef: process.env.BASE_REF || 'saved baseline', comparisonRef: process.env.GITHUB_SHA || 'local', inventory: { baselineFunctions: previous.length, currentFunctions: latest.length }, functionsAdded: added, functionsModified: modified, functionsRemoved: removed, newFunctionsExecuted: changed.filter((fn) => fn.covered), newFunctionsUntested: changed.filter((fn) => !fn.covered), report };
 fs.writeFileSync(path.join(artifacts, 'coverage-delta.json'), JSON.stringify(delta, null, 2));
-if (updateBaseline) fs.writeFileSync(baselinePath, JSON.stringify(current, null, 2));
+// A baseline represents only the next testing cycle. Once every change in
+// this cycle has been covered, promote the current inventory automatically;
+// subsequent reports therefore contain only newly introduced work.
+const cycleComplete = changed.length > 0 && delta.newFunctionsUntested.length === 0;
+if (updateBaseline || cycleComplete) fs.writeFileSync(baselinePath, JSON.stringify(current, null, 2));
 const bridgeUrl = (process.env.COVERAGE_BRIDGE_URL || 'http://127.0.0.1:4000').replace(/\/$/, '');
 const environment = report.environment || process.env.COVERAGE_ENVIRONMENT || process.env.DEPLOYMENT_ENVIRONMENT || process.env.NODE_ENV || 'Development';
 fetch(`${bridgeUrl}/delta-analysis`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ siteOrigin: report.siteOrigin, environment, buildVersion: report.buildVersion, baselineRef: delta.baselineRef, delta }) })
   .then((response) => { if (!response.ok) throw new Error(`Bridge server returned ${response.status}`); console.log('Coverage Delta uploaded to the dashboard.'); })
   .catch((error) => console.warn(`Coverage Delta saved locally but was not uploaded: ${error.message}`));
-console.log(`Coverage Delta: ${added.length} added, ${modified.length} modified, ${removed.length} removed; ${delta.newFunctionsExecuted.length} executed; ${delta.newFunctionsUntested.length} untested.`);
+const pendingAdded = added.filter((fn) => !delta.newFunctionsExecuted.some((covered) => covered.id === fn.id));
+const pendingModified = modified.filter((fn) => !delta.newFunctionsExecuted.some((covered) => covered.id === fn.id));
+console.log(`Coverage Delta: ${pendingAdded.length} added pending, ${pendingModified.length} modified pending; ${delta.newFunctionsExecuted.length} executed; ${delta.newFunctionsUntested.length} untested.${cycleComplete ? ' Testing cycle complete; baseline advanced.' : ''}`);

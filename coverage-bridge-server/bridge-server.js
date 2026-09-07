@@ -13,6 +13,7 @@ const {
   removeCoverageSessionsForOrigin,
   saveDeltaCoverage,
   getDeltaCoverage,
+  getTestingCycles,
 } = require('./coverage-database');
 const { requireEnvironment } = require('./environment');
 
@@ -57,7 +58,7 @@ app.post('/run-delta-check', async (req, res) => {
   try {
     await runProjectScript('ci-coverage.cjs', { siteOrigin, name: environment });
     await runProjectScript('create-coverage-delta.cjs', { siteOrigin, name: environment });
-    return res.json({ analysis: getDeltaCoverage(siteOrigin, environment) });
+    return res.json({ analysis: { ...getDeltaCoverage(siteOrigin, environment), testingCycles: getTestingCycles(siteOrigin, environment) } });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   } finally {
@@ -82,7 +83,7 @@ app.get('/delta-analysis', (req, res) => {
   try { analysis = getDeltaCoverage(siteOrigin, environment); }
   catch (error) { return res.status(400).json({ error: error.message }); }
   if (!analysis) return res.status(404).json({ error: 'No delta analysis found.' });
-  return res.json(analysis);
+  return res.json({ ...analysis, testingCycles: getTestingCycles(siteOrigin, environment) });
 });
 
 app.post('/manual-sessions', (req, res) => {
