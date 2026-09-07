@@ -1,9 +1,10 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./coverage-fixtures');
+const baseUrl = process.env.COVERAGE_BASE_URL || 'http://localhost:3000';
 
 test.describe('Navigation Tests', () => {
 
   test('Homepage loads with correct title and navigation bar', async ({ page }) => {
-    await page.goto('http://localhost:3000/', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
 
     // Verify the page title contains "TravelTrust"
     await expect(page).toHaveTitle(/TravelTrust/);
@@ -14,7 +15,7 @@ test.describe('Navigation Tests', () => {
   });
 
   test('Navigate to Products page via URL', async ({ page }) => {
-    await page.goto('http://localhost:3000/products', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/products`, { waitUntil: 'networkidle' });
 
     // Verify the URL changed to /products
     await expect(page).toHaveURL(/\/products/);
@@ -27,7 +28,7 @@ test.describe('Navigation Tests', () => {
   });
 
   test('Navigate to About page via top-bar link', async ({ page }) => {
-    await page.goto('http://localhost:3000/', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
 
     // Click the "About" link in the top bar
     await page.getByRole('link', { name: 'About' }).click();
@@ -46,7 +47,7 @@ test.describe('Navigation Tests', () => {
   });
 
   test('Navigate to Contact page via top-bar link', async ({ page }) => {
-    await page.goto('http://localhost:3000/', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
 
     // Click the "Contact Us" link in the top bar
     await page.getByRole('link', { name: /Contact/i }).first().click();
@@ -65,7 +66,7 @@ test.describe('Navigation Tests', () => {
   });
 
   test('Navigate to Claim page directly', async ({ page }) => {
-    await page.goto('http://localhost:3000/claim', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/claim`, { waitUntil: 'networkidle' });
 
     // Verify the URL changed to /claim
     await expect(page).toHaveURL(/\/claim/);
@@ -78,7 +79,7 @@ test.describe('Navigation Tests', () => {
   });
 
   test('Navigate to Login page (replaces /agents — not available in this app)', async ({ page }) => {
-    await page.goto('http://localhost:3000/', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
 
     // Click the "Log in" button in the navigation
     await page.getByRole('link', { name: 'Log in' }).click();
@@ -94,14 +95,14 @@ test.describe('Navigation Tests', () => {
   });
 
   test('Navigate to Claim Status page', async ({ page }) => {
-    await page.goto('http://localhost:3000/claim-status', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/claim-status`, { waitUntil: 'networkidle' });
 
     // Verify the URL changed to /claim-status
     await expect(page).toHaveURL(/\/claim-status/);
   });
 
   test('Navigate to Quote page', async ({ page }) => {
-    await page.goto('http://localhost:3000/quote', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/quote`, { waitUntil: 'networkidle' });
 
     // Verify the URL changed to /quote
     await expect(page).toHaveURL(/\/quote/);

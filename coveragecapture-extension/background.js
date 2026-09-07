@@ -1,6 +1,8 @@
 // Coverage is collected directly through Chrome DevTools Protocol.
 
 let session = null; // { tabId, jobId, testName, testDescription, startedAt, interactions }
+const BACKEND_COVERAGE_START = '/__coverage__/start';
+const BACKEND_COVERAGE_SNAPSHOT = '/__coverage__/snapshot';
 
 function getSiteOrigin(url) {
   try {
@@ -90,6 +92,9 @@ async function startCoverage(tabId, jobId, testName, testDescription, testSuite,
     detailed: true,
   });
 
+  const backendResponse = await fetch(`${siteOrigin}${BACKEND_COVERAGE_START}`, { method: 'POST' });
+  if (!backendResponse.ok) throw new Error(`Backend coverage could not start (${backendResponse.status}). Start the local app on localhost.`);
+
   session = { tabId, jobId, testName, testDescription, testSuite: testSuite || 'Manual', environment: environment || 'Unspecified', buildVersion: buildVersion || '', startedAt: startedAt || new Date().toISOString(), siteOrigin, interactions: [] };
   addInteraction(`Started on ${formatPage(tab.url)}`);
   await installInteractionRecorder(tabId);
@@ -111,6 +116,9 @@ async function stopCoverage() {
   const stoppedAt = new Date().toISOString();
   const durationMs = Date.parse(stoppedAt) - Date.parse(startedAt);
   const processed = processCoverage(coverageResult.result);
+  const backendResponse = await fetch(`${siteOrigin}${BACKEND_COVERAGE_SNAPSHOT}`, { method: 'POST' });
+  if (!backendResponse.ok) throw new Error(`Backend coverage snapshot failed (${backendResponse.status}).`);
+  processed.push(...processBackendCoverage(await backendResponse.json()));
 
   const record = {
     testName,
@@ -197,6 +205,7 @@ function processCoverage(rawResult) {
 
     if (!fileMap[script.url]) {
       fileMap[script.url] = {
+        layer: 'frontend',
         url: script.url,
         functions: [],
         namedFunctionIndexes: {},
@@ -233,6 +242,30 @@ function processCoverage(rawResult) {
       totalFunctions: functions.length,
       coveredFunctions: functions.filter((fn) => fn.covered).length,
       functions,
+    };
+  });
+}
+
+function processBackendCoverage(rawResult) {
+  const projectRoot = '/travel-trust-insurance/';
+  return rawResult.filter((script) => {
+    const normalizedUrl = String(script.url || '').replace(/\\/g, '/').toLowerCase();
+    return normalizedUrl.includes(projectRoot)
+      && !normalizedUrl.includes('/node_modules/')
+      && /\/(server\.js|routes\/[^/]+\.js|db\/[^/]+\.js)$/.test(normalizedUrl);
+  }).map((script) => {
+    const functions = script.functions.map((fn, index) => ({
+      name: fn.functionName || `Anonymous callback ${index}`,
+      covered: fn.ranges.some((range) => range.count > 0),
+      ranges: fn.ranges,
+      location: String(fn.ranges[0]?.startOffset ?? index),
+    }));
+    return {
+      layer: 'backend',
+      url: script.url,
+      functions,
+      totalFunctions: functions.length,
+      coveredFunctions: functions.filter((fn) => fn.covered).length,
     };
   });
 }

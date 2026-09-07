@@ -277,7 +277,10 @@ document.getElementById('historyBtn').addEventListener('click', async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const siteOrigin = getSiteOrigin(tab?.url);
   const environment = await detectEnvironment(tab?.id);
-  const query = siteOrigin ? `?origin=${encodeURIComponent(siteOrigin)}&environment=${encodeURIComponent(environment)}` : '';
+  const { latestCoverageResult } = await chrome.storage.local.get('latestCoverageResult');
+  const session = latestCoverageResult?.siteOrigin === siteOrigin && latestCoverageResult?.environment === environment
+    ? `&jobId=${encodeURIComponent(latestCoverageResult.jobId || '')}` : '';
+  const query = siteOrigin ? `?origin=${encodeURIComponent(siteOrigin)}&environment=${encodeURIComponent(environment)}${session}` : '';
   chrome.tabs.create({ url: chrome.runtime.getURL(`history.html${query}`) });
 });
 

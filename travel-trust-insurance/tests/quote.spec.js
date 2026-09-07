@@ -1,9 +1,10 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./coverage-fixtures');
+const baseUrl = process.env.COVERAGE_BASE_URL || 'http://localhost:3000';
 
 test.describe('Quote Form Tests', () => {
 
   test('should submit the quote form successfully with valid data', async ({ page }) => {
-    await page.goto('http://localhost:3000/quote', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/quote`, { waitUntil: 'networkidle' });
 
     // Fill in the form using label-based locators
     await page.getByLabel('Full Name').fill('Jane Doe');
@@ -25,7 +26,7 @@ test.describe('Quote Form Tests', () => {
   });
 
   test('should show a validation error for an invalid ZIP code', async ({ page }) => {
-    await page.goto('http://localhost:3000/quote', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/quote`, { waitUntil: 'networkidle' });
 
     // Fill in the form with an invalid ZIP code
     await page.getByLabel('Full Name').fill('John Smith');
@@ -55,7 +56,7 @@ test.describe('Quote Form Tests', () => {
   });
 
   test('should prevent submission when required fields are empty', async ({ page }) => {
-    await page.goto('http://localhost:3000/quote', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/quote`, { waitUntil: 'networkidle' });
 
     // Click the submit button without filling any fields
     await page.getByRole('button', { name: /get my quote/i }).click();

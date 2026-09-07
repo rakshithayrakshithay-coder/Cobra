@@ -16,7 +16,7 @@ function loadProducts() {
 }
 
 // GET /api/products - return all products, optionally filtered by category
-router.get('/', (req, res) => {
+router.get('/', function listProductsHandler(req, res) {
   const products = loadProducts();
   const { category } = req.query;
   if (category) {
@@ -27,7 +27,7 @@ router.get('/', (req, res) => {
 });
 
 // GET /api/products/:id - return single product
-router.get('/:id', (req, res) => {
+router.get('/:id', function getProductHandler(req, res) {
   const products = loadProducts();
   const product = products.find(p => p.id === req.params.id);
   if (!product) {

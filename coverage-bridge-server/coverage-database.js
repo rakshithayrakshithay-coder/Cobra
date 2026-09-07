@@ -30,6 +30,7 @@ database.exec(`
   CREATE TABLE IF NOT EXISTS coverage_files (
     id INTEGER PRIMARY KEY,
     job_id TEXT NOT NULL,
+    layer TEXT NOT NULL DEFAULT 'frontend',
     url TEXT NOT NULL DEFAULT '',
     total_functions INTEGER NOT NULL DEFAULT 0,
     covered_functions INTEGER NOT NULL DEFAULT 0,
@@ -91,6 +92,10 @@ if (!sessionColumns.some((column) => column.name === 'environment')) {
 if (!sessionColumns.some((column) => column.name === 'build_version')) {
   database.exec("ALTER TABLE coverage_sessions ADD COLUMN build_version TEXT NOT NULL DEFAULT ''");
 }
+const coverageFileColumns = database.prepare('PRAGMA table_info(coverage_files)').all();
+if (!coverageFileColumns.some((column) => column.name === 'layer')) {
+  database.exec("ALTER TABLE coverage_files ADD COLUMN layer TEXT NOT NULL DEFAULT 'frontend'");
+}
 database.exec('CREATE INDEX IF NOT EXISTS coverage_sessions_site_origin_idx ON coverage_sessions(site_origin)');
 database.exec('CREATE INDEX IF NOT EXISTS coverage_sessions_origin_environment_started_at_idx ON coverage_sessions(site_origin, environment, started_at DESC)');
 database.exec('CREATE INDEX IF NOT EXISTS delta_coverage_environment_idx ON delta_coverage_by_environment(site_origin, environment, created_at DESC)');
@@ -106,11 +111,11 @@ const completeSession = database.prepare(`
   WHERE job_id = ? AND status = 'recording'
 `);
 const insertFile = database.prepare(`
-  INSERT INTO coverage_files (job_id, url, total_functions, covered_functions, functions_json)
-  VALUES (?, ?, ?, ?, ?)
+  INSERT INTO coverage_files (job_id, layer, url, total_functions, covered_functions, functions_json)
+  VALUES (?, ?, ?, ?, ?, ?)
 `);
 const getSession = database.prepare('SELECT * FROM coverage_sessions WHERE job_id = ?');
-const getFiles = database.prepare('SELECT url, total_functions, covered_functions, functions_json FROM coverage_files WHERE job_id = ? ORDER BY id');
+const getFiles = database.prepare('SELECT layer, url, total_functions, covered_functions, functions_json FROM coverage_files WHERE job_id = ? ORDER BY id');
 const listSessions = database.prepare('SELECT * FROM coverage_sessions WHERE site_origin = ? AND environment = ? ORDER BY started_at DESC');
 const deleteSession = database.prepare('DELETE FROM coverage_sessions WHERE job_id = ? AND environment = ?');
 const deleteSessionsForOrigin = database.prepare('DELETE FROM coverage_sessions WHERE site_origin = ? AND environment = ?');
@@ -172,6 +177,7 @@ function completeCoverageSession({ jobId, coverage, files, interactions = [], st
     for (const file of files) {
       insertFile.run(
         jobId,
+        String(file?.layer || 'frontend'),
         String(file?.url || ''),
         Number(file?.totalFunctions || 0),
         Number(file?.coveredFunctions || 0),
@@ -190,6 +196,7 @@ function toCoverageSession(session, includeRawCoverage = true) {
   if (!session) return null;
 
   const files = getFiles.all(session.job_id).map((file) => ({
+    layer: file.layer || 'frontend',
     url: file.url,
     totalFunctions: file.total_functions,
     coveredFunctions: file.covered_functions,

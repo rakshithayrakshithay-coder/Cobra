@@ -6,7 +6,7 @@ const path = require('path');
 const contactsPath = path.join(__dirname, '..', 'data', 'contacts.json');
 
 // POST /api/contact - save contact message
-router.post('/', (req, res) => {
+router.post('/', function submitContactHandler(req, res) {
   try {
     const { name, email, message } = req.body;
 

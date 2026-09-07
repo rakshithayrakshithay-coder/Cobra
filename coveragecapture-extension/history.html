@@ -160,6 +160,11 @@
       color: white;
     }
 
+    #backBtn {
+      background: #2563eb;
+      color: white;
+    }
+
     #clearBtn {
       background: var(--red);
       color: white;
@@ -465,6 +470,8 @@
     .delta-heading { margin: 0 0 6px; color: var(--navy); font-size: 22px; letter-spacing: -.02em; }
     .delta-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
     .delta-header .section-note { margin: 0; }
+    .delta-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+    .delta-history-button { flex: 0 0 auto; min-height: 36px; padding: 7px 12px; border: 1px solid var(--navy); border-radius: 6px; color: var(--navy); background: #fff; font-size: 12px; font-weight: 700; }
     .delta-refresh-button { flex: 0 0 auto; min-height: 36px; padding: 7px 12px; border: 1px solid #1d4ed8; border-radius: 6px; color: #fff; background: #2563eb; font-size: 12px; font-weight: 700; }
     .delta-refresh-button:disabled { border-color: #94a3b8; background: #94a3b8; cursor: not-allowed; }
     .delta-report-meta { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 14px; color: #48627f; font-size: 12px; }
@@ -572,6 +579,7 @@
         </select>
       </div>
       <div class="actions">
+        <button id="backBtn" type="button">View Delta Coverage</button>
         <button id="exportBtn">Export as PDF</button>
         <button id="clearBtn">Clear All History</button>
       </div>
@@ -580,14 +588,17 @@
     <section class="dashboard-shell" aria-label="Coverage Dashboard">
       <div class="dashboard-overview">
         <div class="dashboard-grid" id="dashboardCards"></div>
-        <p class="section-note">Based on functions observed across all captured test runs so far — not a full static analysis of the entire codebase.</p>
+        <p class="section-note">Coverage uses the complete function inventory from the latest Coverage Delta check; recorded sessions determine which functions were executed.</p>
         <section class="delta-section" aria-labelledby="deltaHeading">
           <div class="delta-header">
             <div>
               <h2 id="deltaHeading" class="delta-heading">Coverage Delta</h2>
               <p id="deltaIntro" class="section-note">Automated code and coverage comparison for the selected environment.</p>
             </div>
-            <button id="refreshDeltaBtn" class="delta-refresh-button" type="button">Refresh Delta Check</button>
+            <div class="delta-header-actions">
+              <button id="viewHistoryBtn" class="delta-history-button" type="button">View Coverage History</button>
+              <button id="refreshDeltaBtn" class="delta-refresh-button" type="button">Refresh Delta Check</button>
+            </div>
           </div>
           <div id="deltaReportMeta" class="delta-report-meta" aria-live="polite"></div>
           <p id="deltaRefreshStatus" class="delta-refresh-status" aria-live="polite"></p>

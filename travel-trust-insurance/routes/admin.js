@@ -15,7 +15,7 @@ function requireAdmin(req, res, next) {
 }
 
 // GET /admin/claims — View all submitted claims (admin-only page)
-router.get('/claims', requireAdmin, async (req, res) => {
+router.get('/claims', requireAdmin, async function adminClaimsHandler(req, res) {
   try {
     const db = await getDatabase();
 
@@ -50,7 +50,7 @@ router.get('/claims', requireAdmin, async (req, res) => {
 });
 
 // POST /admin/claims/:id/delete - Delete a settled claim (admin-only action)
-router.post('/claims/:id/delete', requireAdmin, async (req, res) => {
+router.post('/claims/:id/delete', requireAdmin, async function deleteAdminClaimHandler(req, res) {
   try {
     const db = await getDatabase();
 

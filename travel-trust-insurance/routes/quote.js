@@ -6,12 +6,12 @@ const path = require('path');
 const leadsPath = path.join(__dirname, '..', 'data', 'leads.json');
 
 // GET /api/quote - placeholder
-router.get('/', (req, res) => {
+router.get('/', function quoteReadyHandler(req, res) {
   res.json({ message: 'Quote endpoint ready' });
 });
 
 // POST /api/quote - save lead data
-router.post('/', (req, res) => {
+router.post('/', function submitQuoteHandler(req, res) {
   try {
     const { fullName, zipCode, insuranceType, email, phone } = req.body;
 

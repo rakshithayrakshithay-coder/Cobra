@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const session = require('express-session');
 const packageInfo = require('./package.json');
+const { startCoverageAgent, enableCoverageAgent, takeCoverageSnapshot } = require('./coverage-agent.cjs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,6 +12,7 @@ const PORT = process.env.PORT || 3000;
 // package version keeps local development recordings grouped consistently.
 const BUILD_VERSION = process.env.BUILD_VERSION || packageInfo.version;
 const COVERAGE_ENVIRONMENT = process.env.COVERAGE_ENVIRONMENT || process.env.DEPLOYMENT_ENVIRONMENT || process.env.NODE_ENV || 'Development';
+const coverageAgentReady = startCoverageAgent();
 
 // Middleware
 app.use(bodyParser.json());
@@ -24,7 +26,7 @@ app.use(session({
 }));
 
 // Make session available in all EJS views
-app.use((req, res, next) => {
+app.use(function assignCoverageViewLocals(req, res, next) {
   res.locals.session = req.session;
   res.locals.buildVersion = BUILD_VERSION;
   res.locals.coverageEnvironment = COVERAGE_ENVIRONMENT;
@@ -37,6 +39,26 @@ app.set('views', path.join(__dirname, 'views'));
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
+
+app.post('/__coverage__/snapshot', async function coverageSnapshotHandler(req, res) {
+  if (req.hostname !== 'localhost' && req.hostname !== '127.0.0.1') return res.status(404).json({ error: 'Coverage agent is local-only.' });
+  try {
+    await coverageAgentReady;
+    return res.json(await takeCoverageSnapshot());
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/__coverage__/start', async function coverageStartHandler(req, res) {
+  if (req.hostname !== 'localhost' && req.hostname !== '127.0.0.1') return res.status(404).json({ error: 'Coverage agent is local-only.' });
+  try {
+    await enableCoverageAgent();
+    return res.json({ enabled: true });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
 
 // Import routes
 const quoteRoutes = require('./routes/quote');
@@ -121,12 +143,12 @@ function respondLoginError(req, res, status, renderData, error) {
 }
 
 // GET /login - Show login page with separate admin/user sections
-app.get('/login', (req, res) => {
+app.get('/login', function loginPageHandler(req, res) {
   res.render('login', { adminError: null, userError: null });
 });
 
 // POST /login/admin - Process admin login
-app.post('/login/admin', (req, res) => {
+app.post('/login/admin', function adminLoginHandler(req, res) {
   const { username, password } = req.body;
 
   if (!username || !password) {
@@ -166,7 +188,7 @@ app.post('/login/admin', (req, res) => {
 });
 
 // POST /login/user - Process user login using claim name + policy number
-app.post('/login/user', async (req, res) => {
+app.post('/login/user', async function userLoginHandler(req, res) {
   const { full_name, policy_number } = req.body;
 
   if (!full_name || !policy_number) {
@@ -240,9 +262,13 @@ app.get('/logout', (req, res) => {
 });
 
 // Helper: load products
+function productsDataPath() {
+  return path.join(__dirname, 'data', 'products.json');
+}
+
 function loadProducts() {
   try {
-    const data = fs.readFileSync(path.join(__dirname, 'data', 'products.json'), 'utf8');
+    const data = fs.readFileSync(productsDataPath(), 'utf8');
     return JSON.parse(data);
   } catch (error) {
     console.error('Error reading products:', error);

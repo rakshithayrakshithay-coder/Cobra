@@ -9,6 +9,7 @@ const environmentFilter = document.getElementById('environmentFilter');
 const buildVersionFilter = document.getElementById('buildVersionFilter');
 const exportBtn = document.getElementById('exportBtn');
 const clearBtn = document.getElementById('clearBtn');
+const backBtn = document.getElementById('backBtn');
 const summaryText = document.getElementById('summaryText');
 const historyBody = document.getElementById('historyBody');
 const emptyState = document.getElementById('emptyState');
@@ -22,6 +23,7 @@ const manualDeltaBtn = document.getElementById('manualDeltaBtn');
 const baselineBuildSelect = document.getElementById('baselineBuildSelect');
 const comparisonBuildSelect = document.getElementById('comparisonBuildSelect');
 const refreshDeltaBtn = document.getElementById('refreshDeltaBtn');
+const viewHistoryBtn = document.getElementById('viewHistoryBtn');
 const deltaReportMeta = document.getElementById('deltaReportMeta');
 const deltaRefreshStatus = document.getElementById('deltaRefreshStatus');
 
@@ -34,6 +36,7 @@ let selectedComparisonBuild = '';
 let deltaViewMode = 'automatic';
 const historyParameters = new URLSearchParams(window.location.search);
 const historySiteOrigin = historyParameters.get('origin');
+const historyJobId = historyParameters.get('jobId');
 // Older History links did not include an environment. Default local usage to
 // Development so the report remains isolated instead of falling back to an
 // empty, unscoped view.
@@ -56,9 +59,10 @@ function getSiteHistory() {
   // The bridge request is already scoped to the selected origin/environment.
   // Keep its results intact: UI labels use "Development" while the bridge
   // stores the canonical value "development".
-  if (bridgeHistoryLoaded) return coverageHistory;
+  const scoped = historyJobId ? coverageHistory.filter((record) => record.jobId === historyJobId) : coverageHistory;
+  if (bridgeHistoryLoaded) return scoped;
   return historySiteOrigin && historyEnvironment
-    ? coverageHistory.filter((record) => record.siteOrigin === historySiteOrigin && normalizeEnvironment(getRecordMetadata(record).environment) === historyEnvironment)
+    ? scoped.filter((record) => record.siteOrigin === historySiteOrigin && normalizeEnvironment(getRecordMetadata(record).environment) === historyEnvironment)
     : [];
 }
 
@@ -192,7 +196,6 @@ function isAnonymous(name) {
 
 function buildCoverage(records) {
   const files = new Map();
-  let anonymousId = 0;
   records.forEach((record) => (record.files || []).forEach((file) => {
     // Older history may contain both localhost URLs and path-only URLs for one file.
     const url = formatFileUrl(file.url);
@@ -201,13 +204,14 @@ function buildCoverage(records) {
     (file.functions || []).forEach((fn) => {
       if (!fn) return;
       const name = fn.name || '(anonymous)';
-      // Anonymous functions intentionally receive a new key per observation.
-      const key = isAnonymous(name) ? `anonymous:${anonymousId++}` : `name:${name}`;
+      const location = String(fn.location || '');
+      // Use source location so repeated observations of the same callback merge.
+      const key = `${isAnonymous(name) ? 'anonymous' : 'name'}:${name}:${location}`;
       const existing = target.functions.get(key);
       target.functions.set(key, {
         name,
         covered: Boolean(existing?.covered || fn.covered),
-        location: existing?.location || fn.location || '',
+        location: existing?.location || location,
       });
     });
   }));
@@ -311,11 +315,11 @@ function renderDeltaFunctionList(functions) {
     const content = document.createElement('div');
     entries.sort((first, second) => String(first.name || '').localeCompare(String(second.name || ''))).forEach((fn) => {
       const item = document.createElement('div'); item.className = 'delta-function';
-      item.textContent = `${fn.covered ? 'Executed' : 'Untested'} — ${fn.name}${fn.location ? ` (${fn.location})` : ''}`;
+      item.textContent = `${fn.covered ? 'Executed' : 'Unexecuted'} — ${fn.name}${fn.location ? ` (${fn.location})` : ''}`;
       item.textContent = '';
       const status = document.createElement('span');
       status.className = `delta-function-status ${fn.covered ? 'executed' : 'untested'}`;
-      status.textContent = fn.covered ? 'Executed' : 'Untested';
+      status.textContent = fn.covered ? 'Executed' : 'Unexecuted';
       const name = document.createElement('span');
       name.className = 'delta-function-name';
       name.textContent = fn.name;
@@ -347,51 +351,48 @@ function renderBuildFunctionSnapshot(label, buildVersion, snapshot) {
   return section;
 }
 
-function renderUploadedDelta(deltaAnalysis) {
+function renderUploadedDelta(deltaAnalysis, records = getSiteHistory()) {
+  const delta = deltaAnalysis?.delta || {};
+  const added = Array.isArray(delta.functionsAdded) ? delta.functionsAdded : [];
+  const modified = Array.isArray(delta.functionsModified) ? delta.functionsModified : [];
+  const changedExecuted = Array.isArray(delta.newFunctionsExecuted) ? delta.newFunctionsExecuted : [];
+  const changedUnexecuted = Array.isArray(delta.newFunctionsUntested) ? delta.newFunctionsUntested : [];
+  const cumulative = buildCoverage(records);
+  const executedUnique = cumulative.reduce((sum, file) => sum + file.covered, 0);
+  const inventory = delta.inventory || {};
+  const currentTotal = Number(inventory.currentFunctions) || cumulative.reduce((sum, file) => sum + file.total, 0);
+  const executed = Math.min(executedUnique, currentTotal);
+  const unexecuted = Math.max(currentTotal - executed, 0);
+  const overview = document.createElement('div'); overview.className = 'delta-summary';
+  [[currentTotal, 'Total functions', ''], [executed, 'Executed functions', 'executed'], [unexecuted, 'Unexecuted functions', 'untested']].forEach(([value, label, tone]) => {
+    const metric = document.createElement('div'); metric.className = `delta-metric ${tone}`;
+    const big = document.createElement('div'); big.className = 'delta-value'; big.textContent = value;
+    const title = document.createElement('div'); title.className = 'delta-label'; title.textContent = label;
+    metric.append(big, title); overview.appendChild(metric);
+  });
+  deltaResults.replaceChildren(overview);
+  const cumulativeNote = document.createElement('p'); cumulativeNote.className = 'delta-note';
+  cumulativeNote.textContent = `${executed} unique functions executed across the selected action sessions; ${unexecuted} remain unexecuted in the current inventory.`;
+  deltaResults.append(cumulativeNote);
+  if (added.length || modified.length) {
+    const heading = document.createElement('p'); heading.className = 'delta-note'; heading.textContent = 'Only functions added or modified since the saved baseline:';
+    const changedIds = new Set([...changedExecuted, ...changedUnexecuted].map((fn) => fn.id));
+    const changed = [...added, ...modified].map((fn) => ({ ...fn, covered: !changedIds.has(fn.id) || changedExecuted.some((entry) => entry.id === fn.id), location: fn.line ? `line ${fn.line}` : '' }));
+    deltaResults.append(heading, renderDeltaFunctionList(changed));
+  } else {
+    const note = document.createElement('p'); note.className = 'delta-note'; note.textContent = 'No new or modified functions detected since the saved baseline.'; deltaResults.append(note);
+  }
   const cycles = Array.isArray(deltaAnalysis.testingCycles) ? deltaAnalysis.testingCycles : [];
   if (cycles.length) {
     const current = cycles.find((cycle) => cycle.status === 'pending') || null;
     const history = cycles.filter((cycle) => cycle.status === 'completed');
-    deltaResults.replaceChildren(renderTestingCycle(current, 'Current Testing Cycle'));
+    deltaResults.append(renderTestingCycle(current, 'Current Testing Cycle'));
     if (history.length) {
       const heading = document.createElement('h3'); heading.className = 'testing-history-heading'; heading.textContent = 'Testing History';
       const list = document.createElement('div'); list.className = 'testing-history';
       history.forEach((cycle) => list.append(renderTestingCycle(cycle, `Cycle ${cycle.id}`)));
       deltaResults.append(heading, list);
     }
-    return;
-  }
-  const delta = deltaAnalysis.delta || {};
-  const added = Array.isArray(delta.functionsAdded) ? delta.functionsAdded : [];
-  const modified = Array.isArray(delta.functionsModified) ? delta.functionsModified : [];
-  const executedIds = new Set((delta.newFunctionsExecuted || []).map((fn) => fn.id));
-  const untestedIds = new Set((delta.newFunctionsUntested || []).map((fn) => fn.id));
-  const changed = [...added, ...modified].map((fn) => ({ ...fn, covered: executedIds.has(fn.id) && !untestedIds.has(fn.id), location: fn.line ? `line ${fn.line}` : '' }));
-  const pendingAdded = added.filter((fn) => untestedIds.has(fn.id));
-  const pendingModified = modified.filter((fn) => untestedIds.has(fn.id));
-  const pendingChanged = changed.filter((fn) => untestedIds.has(fn.id));
-  const metrics = [
-    [pendingAdded.length, 'Functions added', 'added'],
-    [pendingModified.length, 'Functions modified', 'modified'],
-    [executedIds.size, 'Changed functions executed', 'executed'],
-    [untestedIds.size, 'Changed functions untested', 'untested'],
-  ];
-  const summary = document.createElement('div'); summary.className = 'delta-summary';
-  metrics.forEach(([value, label, tone]) => {
-    const metric = document.createElement('div'); metric.className = `delta-metric ${tone}`;
-    const big = document.createElement('div'); big.className = 'delta-value'; big.textContent = value;
-    const title = document.createElement('div'); title.className = 'delta-label'; title.textContent = label;
-    metric.append(big, title); summary.appendChild(metric);
-  });
-  const note = document.createElement('p'); note.className = 'delta-note';
-  note.textContent = untestedIds.size
-    ? `Pending changes from the saved baseline: ${pendingAdded.length} added and ${pendingModified.length} modified functions still require testing.`
-    : 'All changes from the saved baseline have been tested. The next code change starts a new testing cycle.';
-  deltaResults.className = '';
-  deltaResults.append(summary, note);
-  if (pendingChanged.length) {
-    const heading = document.createElement('p'); heading.className = 'delta-note'; heading.textContent = 'Pending changed functions';
-    deltaResults.append(heading, renderDeltaFunctionList(pendingChanged));
   }
 }
 
@@ -404,7 +405,7 @@ function renderTestingCycle(cycle, title) {
   }
   const metrics = [
     [cycle.added, 'Functions added', 'added'], [cycle.modified, 'Functions modified', 'modified'],
-    [cycle.tested, 'Functions tested', 'executed'], [cycle.untested, 'Functions untested', 'untested'],
+    [cycle.tested, 'Functions executed', 'executed'], [cycle.untested, 'Functions unexecuted', 'untested'],
     [cycle.status === 'completed' ? 'Completed' : 'Pending', 'Status', cycle.status],
   ];
   const grid = document.createElement('div'); grid.className = 'delta-summary';
@@ -439,7 +440,7 @@ function renderCoverageDelta(records = getDeltaScopeHistory()) {
   if (uploadedDelta) {
     deltaIntro.textContent = 'Automated code and coverage comparison for the selected environment.';
     renderDeltaReportMeta(uploadedDelta);
-    renderUploadedDelta(uploadedDelta);
+    renderUploadedDelta(uploadedDelta, getSiteHistory());
     return;
   }
   renderDeltaReportMeta(null);
@@ -448,7 +449,7 @@ function renderCoverageDelta(records = getDeltaScopeHistory()) {
   manualDeltaBtn.setAttribute('aria-pressed', String(!automatic));
   if (automatic) {
     deltaIntro.textContent = 'Automated code and coverage comparison for the selected environment.';
-    renderUploadedDelta({ buildVersion: 'the current build', baselineRef: 'its saved baseline', delta: {} });
+    renderUploadedDelta({ buildVersion: 'the current build', baselineRef: 'its saved baseline', delta: {} }, records);
     return;
   }
   deltaIntro.textContent = 'Choose two recorded build versions to compare their observed function coverage.';
@@ -461,7 +462,7 @@ function renderCoverageDelta(records = getDeltaScopeHistory()) {
   const metrics = [
     [delta.added.length, 'Functions added', 'added'],
     [delta.addedCovered.length, 'New functions executed', 'executed'],
-    [delta.addedUntested.length, 'New functions untested', 'untested'],
+    [delta.addedUntested.length, 'New functions unexecuted', 'untested'],
   ];
   const summary = document.createElement('div'); summary.className = 'delta-summary';
   metrics.forEach(([value, label, tone]) => {
@@ -502,7 +503,7 @@ function createBar(covered, total) {
 function createFunctionList(functions, uncoveredOnly = false, coveredOnly = false) {
   const list = document.createElement('div'); list.className = 'function-list';
   const shown = functions.filter((fn) => (!uncoveredOnly || !fn.covered) && (!coveredOnly || fn.covered)).sort((a, b) => a.name.localeCompare(b.name));
-  if (!shown.length) { list.textContent = uncoveredOnly ? 'No observed untested functions.' : coveredOnly ? 'No observed executed functions.' : 'No functions recorded.'; return list; }
+  if (!shown.length) { list.textContent = uncoveredOnly ? 'No observed unexecuted functions.' : coveredOnly ? 'No observed executed functions.' : 'No functions recorded.'; return list; }
   shown.forEach((fn) => {
     const item = document.createElement('div'); item.className = `function-item ${fn.covered ? 'function-covered' : 'function-uncovered'}`;
     const icon = document.createElement('span'); icon.textContent = fn.covered ? '✓' : '○';
@@ -553,7 +554,7 @@ function renderFilePanel(container, files, untestedOnly = false) {
     const summary = document.createElement('summary');
     const untested = file.total - file.covered;
     if (untestedOnly) {
-      summary.textContent = `${formatFileUrl(file.url)} (${untested} untested)`;
+      summary.textContent = `${formatFileUrl(file.url)} (${untested} unexecuted)`;
       details.append(summary, createFunctionList(file.functions, true));
       container.appendChild(details);
       return;
@@ -570,12 +571,14 @@ function renderFilePanel(container, files, untestedOnly = false) {
 
 function renderDashboard(records = getFilteredHistory()) {
   const files = buildCoverage(records);
-  const total = files.reduce((sum, file) => sum + file.total, 0);
-  const covered = files.reduce((sum, file) => sum + file.covered, 0);
+  const observedTotal = files.reduce((sum, file) => sum + file.total, 0);
+  const inventoryTotal = Number(uploadedDelta?.delta?.inventory?.currentFunctions);
+  const total = Number.isFinite(inventoryTotal) && inventoryTotal > 0 ? inventoryTotal : observedTotal;
+  const covered = Math.min(files.reduce((sum, file) => sum + file.covered, 0), total);
   const pct = percentNumber(covered, total);
   const cardData = [
     ['Overall Coverage', `${pct}%`, `${covered} / ${total} functions`],
-    ['Total Functions', total, 'Unique observed functions'],
+    ['Total Functions', total, inventoryTotal > 0 ? 'Complete Delta inventory' : 'Observed functions'],
     ['Quality Gate', pct >= QUALITY_GATE_PERCENT ? 'Passing' : 'Failing', `${QUALITY_GATE_PERCENT}% threshold`],
     ['Recorded Tests', records.length, 'Tests in selected scope'],
   ];
@@ -625,7 +628,7 @@ function renderHistory() {
   const sorted = sortHistoryRecords(filtered);
   historyBody.replaceChildren(); emptyState.style.display = sorted.length ? 'none' : 'block'; exportBtn.disabled = !siteHistory.length; clearBtn.disabled = !siteHistory.length;
   summaryText.textContent = historySiteOrigin && historyEnvironment
-    ? `${filtered.length} of ${siteHistory.length} tests shown for ${historyEnvironment} at ${historySiteOrigin}.`
+    ? `${filtered.length} of ${siteHistory.length} ${historyJobId ? 'action session' : 'tests'} shown for ${historyEnvironment} at ${historySiteOrigin}.`
     : 'Open History from a website tab to view its environment-scoped coverage history.';
   sorted.forEach((record) => {
     const { covered, total } = getRecordCoverage(record);
@@ -861,4 +864,15 @@ refreshDeltaBtn.addEventListener('click', async () => {
     refreshDeltaBtn.disabled = false;
   }
 });
+backBtn.addEventListener('click', () => {
+  if (!historySiteOrigin || !historyEnvironment) return;
+  const query = `?origin=${encodeURIComponent(historySiteOrigin)}&environment=${encodeURIComponent(historyEnvironment)}&view=delta`;
+  window.open(chrome.runtime.getURL(`history.html${query}`), '_blank');
+});
+viewHistoryBtn.addEventListener('click', () => {
+  if (!historySiteOrigin || !historyEnvironment) return;
+  const query = `?origin=${encodeURIComponent(historySiteOrigin)}&environment=${encodeURIComponent(historyEnvironment)}`;
+  window.open(chrome.runtime.getURL(`history.html${query}`), '_blank');
+});
 exportBtn.addEventListener('click', exportHistory); clearBtn.addEventListener('click', clearHistory); viewOverallBtn.addEventListener('click', showOverall); loadHistory();
+if (historySiteOrigin) window.setInterval(() => loadHistory(), 5000);

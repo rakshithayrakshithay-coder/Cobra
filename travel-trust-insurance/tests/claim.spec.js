@@ -1,11 +1,12 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./coverage-fixtures');
+const baseUrl = process.env.COVERAGE_BASE_URL || 'http://localhost:3000';
 
 test.describe('Claims Flow Tests', () => {
   test('should submit a claim and look up its status with the generated Claim ID', async ({ page }) => {
     const policyNumber = 'POL-123456';
     const claimIdPattern = /CLM-[A-Z0-9]+(?:-[A-Z0-9]+)?/;
 
-    await page.goto('http://localhost:3000/claim', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/claim`, { waitUntil: 'networkidle' });
 
     await page.getByLabel('Full Name').fill('Avery Morgan');
     await page.getByLabel('Policy Number').fill(policyNumber);
@@ -24,7 +25,7 @@ test.describe('Claims Flow Tests', () => {
     }
     const claimId = match[1].trim();
 
-    await page.goto('http://localhost:3000/claim-status', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/claim-status`, { waitUntil: 'networkidle' });
 
     await page.getByLabel('Claim ID').fill(claimId);
     await page.getByLabel('Policy Number').fill(policyNumber);
@@ -38,7 +39,7 @@ test.describe('Claims Flow Tests', () => {
   });
 
   test('should show a not found message for a non-existent claim status lookup', async ({ page }) => {
-    await page.goto('http://localhost:3000/claim-status', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/claim-status`, { waitUntil: 'networkidle' });
 
     await page.getByLabel('Claim ID').fill('CLM-NOTREAL');
     await page.getByLabel('Policy Number').fill('POL-000000');
@@ -49,7 +50,7 @@ test.describe('Claims Flow Tests', () => {
   });
 
   test('should prevent claim submission when required fields are empty', async ({ page }) => {
-    await page.goto('http://localhost:3000/claim', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/claim`, { waitUntil: 'networkidle' });
 
     await page.getByRole('button', { name: /submit claim/i }).click();
 

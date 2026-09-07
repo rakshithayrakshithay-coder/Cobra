@@ -56,7 +56,7 @@ app.post('/run-delta-check', async (req, res) => {
 
   deltaCheckInProgress = true;
   try {
-    await runProjectScript('ci-coverage.cjs', { siteOrigin, name: environment });
+    await runProjectScript('coverage-playwright.cjs', { siteOrigin, name: environment });
     await runProjectScript('create-coverage-delta.cjs', { siteOrigin, name: environment });
     return res.json({ analysis: { ...getDeltaCoverage(siteOrigin, environment), testingCycles: getTestingCycles(siteOrigin, environment) } });
   } catch (error) {
@@ -73,6 +73,19 @@ app.post('/delta-analysis', (req, res) => {
   try { saved = saveDeltaCoverage({ siteOrigin, environment, buildVersion, baselineRef, delta }); }
   catch (error) { return res.status(400).json({ error: error.message }); }
   return res.status(201).json(saved);
+});
+
+app.post('/automated-sessions', (req, res) => {
+  const { testName = '', testDescription = '', testSuite = 'CI', environment, buildVersion = '', siteOrigin = '', startedAt, stoppedAt, coverage = [], files = [] } = req.body || {};
+  if (!environment || !startedAt || !stoppedAt || !Array.isArray(files)) return res.status(400).json({ error: 'environment, timestamps, and files are required.' });
+  try {
+    const jobId = crypto.randomUUID();
+    createSession({ jobId, testName, testDescription, testSuite, environment, buildVersion, siteOrigin, startedAt });
+    const session = completeCoverageSession({ jobId, coverage, files, startTimestamp: startedAt, stopTimestamp: stoppedAt });
+    return res.status(201).json({ jobId: session.jobId, status: session.status });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
 });
 
 app.get('/delta-analysis', (req, res) => {

@@ -1,8 +1,9 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./coverage-fixtures');
+const baseUrl = process.env.COVERAGE_BASE_URL || 'http://localhost:3000';
 
 test.describe('Contact Page Tests', () => {
   test('should submit the contact form successfully with valid data', async ({ page }) => {
-    await page.goto('http://localhost:3000/contact', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/contact`, { waitUntil: 'networkidle' });
 
     await page.getByLabel('Name').fill('Jordan Taylor');
     await page.getByLabel('Email').fill('jordan.taylor@example.com');
@@ -15,7 +16,7 @@ test.describe('Contact Page Tests', () => {
   });
 
   test('should show a validation error for an invalid email without crashing', async ({ page }) => {
-    await page.goto('http://localhost:3000/contact', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/contact`, { waitUntil: 'networkidle' });
 
     await page.getByLabel('Name').fill('Jordan Taylor');
     await page.getByLabel('Email').fill('notanemail');
@@ -32,7 +33,7 @@ test.describe('Contact Page Tests', () => {
   });
 
   test('should prevent contact form submission when required fields are empty', async ({ page }) => {
-    await page.goto('http://localhost:3000/contact', { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/contact`, { waitUntil: 'networkidle' });
 
     await page.getByRole('button', { name: /send message/i }).click();
 

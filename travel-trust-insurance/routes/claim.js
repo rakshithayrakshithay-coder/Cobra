@@ -13,7 +13,7 @@ function generateClaimId() {
 }
 
 // POST /api/claims — Submit a new claim
-router.post('/', async (req, res) => {
+router.post('/', async function submitClaimHandler(req, res) {
   const { fullName, policyNumber, email, phone, incidentDate, claimType, description } = req.body;
 
   // Validation
@@ -65,7 +65,7 @@ router.post('/', async (req, res) => {
 });
 
 // GET /api/claims — Retrieve all claims (for potential admin use)
-router.get('/', async (req, res) => {
+router.get('/', async function listClaimsHandler(req, res) {
   try {
     const db = await getDatabase();
     const result = db.exec('SELECT * FROM claims ORDER BY created_at DESC');
@@ -90,7 +90,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/claims/lookup?claimId=xxx&policyNumber=yyy — Look up a claim by ID and policy number
-router.get('/lookup', async (req, res) => {
+router.get('/lookup', async function lookupClaimHandler(req, res) {
   const { claimId, policyNumber } = req.query;
 
   if (!claimId || !policyNumber) {
