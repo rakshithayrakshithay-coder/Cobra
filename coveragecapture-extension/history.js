@@ -7,13 +7,18 @@ const sortSelect = document.getElementById('sortSelect');
 const testSuiteFilter = document.getElementById('testSuiteFilter');
 const environmentFilter = document.getElementById('environmentFilter');
 const buildVersionFilter = document.getElementById('buildVersionFilter');
+const coverageStatusFilter = document.getElementById('coverageStatusFilter');
 const exportBtn = document.getElementById('exportBtn');
+const resetFiltersBtn = document.getElementById('resetFiltersBtn');
 const clearBtn = document.getElementById('clearBtn');
 const backBtn = document.getElementById('backBtn');
 const summaryText = document.getElementById('summaryText');
 const historyBody = document.getElementById('historyBody');
 const emptyState = document.getElementById('emptyState');
 const dashboardCards = document.getElementById('dashboardCards');
+const dashboardScopeNote = document.getElementById('dashboardScopeNote');
+const coverageTrend = document.getElementById('coverageTrend');
+const actionComparison = document.getElementById('actionComparison');
 const overallFiles = document.getElementById('overallFiles');
 const viewOverallBtn = document.getElementById('viewOverallBtn');
 const deltaResults = document.getElementById('deltaResults');
@@ -42,6 +47,7 @@ const historyJobId = historyParameters.get('jobId');
 // empty, unscoped view.
 const historyEnvironment = normalizeEnvironment(historyParameters.get('environment') || 'development');
 let selectedFilters = { testSuite: '', environment: historyEnvironment || '', buildVersion: '' };
+let selectedCoverageStatus = '';
 const deltaOnlyView = historyParameters.get('view') === 'delta';
 let focusCoverageDelta = deltaOnlyView;
 
@@ -98,7 +104,8 @@ function getFilteredHistory(records = getSiteHistory()) {
     return (!query || (record.testName || '').toLowerCase().includes(query))
       && (!selectedFilters.testSuite || metadata.testSuite === selectedFilters.testSuite)
       && (!selectedFilters.environment || metadata.environment === selectedFilters.environment)
-      && (!selectedFilters.buildVersion || metadata.buildVersion === selectedFilters.buildVersion);
+      && (!selectedFilters.buildVersion || metadata.buildVersion === selectedFilters.buildVersion)
+      && (!selectedCoverageStatus || getActionCoverageStatus(record) === selectedCoverageStatus);
   });
 }
 
@@ -126,7 +133,7 @@ function inferSiteOrigin(record) {
 
 const formatDate = (value) => Number.isNaN(new Date(value).getTime()) ? value || 'Unknown' : new Date(value).toLocaleString();
 const formatDuration = (durationMs) => `${(Number(durationMs || 0) / 1000).toFixed(2)}s`;
-const percentNumber = (covered, total) => total ? Math.round((covered / total) * 100) : 0;
+const percentNumber = (covered, total) => total ? Math.round((covered / total) * 1000) / 10 : 0;
 const getCoveragePercent = (covered, total) => `${percentNumber(covered, total)}%`;
 const getLineNumber = (location) => String(location).split(':')[0];
 const sortNewestFirst = (records) => [...records].sort((a, b) => new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime());
@@ -136,6 +143,18 @@ function getRecordCoverage(record) {
   const total = files.reduce((sum, file) => sum + Number(file.totalFunctions || (file.functions || []).length), 0);
   const covered = files.reduce((sum, file) => sum + Number(file.coveredFunctions || 0), 0);
   return { covered, total, percent: percentNumber(covered, total) };
+}
+
+function getActionCoverageStatus(record) {
+  const { covered, total } = getRecordCoverage(record);
+  if (!covered) return 'uncovered';
+  if (covered >= total) return 'covered';
+  return 'partial';
+}
+
+function getDeltaInventoryTotal() {
+  const total = Number(uploadedDelta?.delta?.inventory?.currentFunctions);
+  return Number.isFinite(total) && total > 0 ? total : null;
 }
 
 function sortHistoryRecords(records) {
@@ -180,6 +199,23 @@ function sortHistoryRecords(records) {
   return sorted;
 }
 
+function uniqueActionRecords(records) {
+  const latestByAction = new Map();
+  sortHistoryRecords(records).forEach((record) => {
+    const actionName = String(record.testName || 'Untitled test').trim().toLowerCase();
+    if (!latestByAction.has(actionName)) latestByAction.set(actionName, record);
+  });
+  return [...latestByAction.values()];
+}
+
+function getActionRunCounts(records) {
+  return records.reduce((counts, record) => {
+    const name = String(record.testName || 'Untitled test').trim().toLowerCase();
+    counts.set(name, (counts.get(name) || 0) + 1);
+    return counts;
+  }, new Map());
+}
+
 function formatFileUrl(url) {
   if (!url) return 'Unknown file';
   try {
@@ -194,6 +230,12 @@ function isAnonymous(name) {
   return !name || /^\(?anonymous\)?$/i.test(String(name).trim()) || /anonymous/i.test(String(name));
 }
 
+function getCoverageFunctionKey(fileUrl, fn) {
+  const name = fn.name || '(anonymous)';
+  const location = String(fn.location || '');
+  return `${fileUrl}|${isAnonymous(name) ? 'anonymous' : 'name'}:${name}:${location}`;
+}
+
 function buildCoverage(records) {
   const files = new Map();
   records.forEach((record) => (record.files || []).forEach((file) => {
@@ -206,7 +248,7 @@ function buildCoverage(records) {
       const name = fn.name || '(anonymous)';
       const location = String(fn.location || '');
       // Use source location so repeated observations of the same callback merge.
-      const key = `${isAnonymous(name) ? 'anonymous' : 'name'}:${name}:${location}`;
+      const key = getCoverageFunctionKey(url, fn);
       const existing = target.functions.get(key);
       target.functions.set(key, {
         name,
@@ -363,8 +405,11 @@ function renderUploadedDelta(deltaAnalysis, records = getSiteHistory()) {
   const currentTotal = Number(inventory.currentFunctions) || cumulative.reduce((sum, file) => sum + file.total, 0);
   const executed = Math.min(executedUnique, currentTotal);
   const unexecuted = Math.max(currentTotal - executed, 0);
+  const changed = new Map([...added, ...modified].map((fn) => [fn.id, fn]));
+  const changedExecutedCount = [...changed.keys()].filter((id) => changedExecuted.some((fn) => fn.id === id)).length;
+  const changedUntestedCount = changed.size - changedExecutedCount;
   const overview = document.createElement('div'); overview.className = 'delta-summary';
-  [[currentTotal, 'Total functions', ''], [executed, 'Executed functions', 'executed'], [unexecuted, 'Unexecuted functions', 'untested']].forEach(([value, label, tone]) => {
+  [[currentTotal, 'Total inventory functions', ''], [executed, 'Cumulative executed functions', 'executed'], [unexecuted, 'Cumulative unexecuted functions', 'untested'], [changed.size, 'Changed functions', 'modified'], [changedExecutedCount, 'Changed functions covered', 'executed'], [changedUntestedCount, 'Changed functions untested', 'untested']].forEach(([value, label, tone]) => {
     const metric = document.createElement('div'); metric.className = `delta-metric ${tone}`;
     const big = document.createElement('div'); big.className = 'delta-value'; big.textContent = value;
     const title = document.createElement('div'); title.className = 'delta-label'; title.textContent = label;
@@ -519,6 +564,7 @@ function createFunctionColumns(functions) {
   list.className = 'function-list function-columns';
   const groups = [
     { title: 'Executed', functions: functions.filter((fn) => fn.covered), covered: true },
+    { title: 'Unexecuted', functions: functions.filter((fn) => !fn.covered), covered: false },
   ];
 
   groups.forEach((group) => {
@@ -538,7 +584,9 @@ function createFunctionColumns(functions) {
         const icon = document.createElement('span'); icon.textContent = group.covered ? '✓' : '○';
         const name = document.createElement('span'); name.className = 'function-name'; name.textContent = fn.name;
         const location = document.createElement('span'); location.className = 'function-location'; location.textContent = fn.location ? `line ${getLineNumber(fn.location)}` : '';
-        item.append(icon, name, location); entries.appendChild(item);
+        item.append(icon, name, location);
+        if (fn.newlyCovered) { const badge = document.createElement('span'); badge.className = 'newly-covered'; badge.textContent = 'New'; item.appendChild(badge); }
+        entries.appendChild(item);
       });
     }
     column.append(heading, entries); list.appendChild(column);
@@ -569,36 +617,128 @@ function renderFilePanel(container, files, untestedOnly = false) {
   });
 }
 
-function renderDashboard(records = getFilteredHistory()) {
-  const files = buildCoverage(records);
-  const observedTotal = files.reduce((sum, file) => sum + file.total, 0);
-  const inventoryTotal = Number(uploadedDelta?.delta?.inventory?.currentFunctions);
-  const total = Number.isFinite(inventoryTotal) && inventoryTotal > 0 ? inventoryTotal : observedTotal;
-  const covered = Math.min(files.reduce((sum, file) => sum + file.covered, 0), total);
-  const pct = percentNumber(covered, total);
+function renderCoverageTrend(container, records, inventoryTotal) {
+  container.replaceChildren();
+  const sorted = [...records].sort((first, second) => new Date(first.capturedAt || first.stoppedAt || first.startedAt).getTime() - new Date(second.capturedAt || second.stoppedAt || second.startedAt).getTime());
+  if (!sorted.length) return;
+  const heading = document.createElement('h3'); heading.className = 'trend-heading'; heading.textContent = 'Coverage Trend';
+  const note = document.createElement('p'); note.className = 'trend-note'; note.textContent = 'Cumulative unique functions covered after each recorded action.';
+  const chart = document.createElement('div'); chart.className = 'coverage-trend-chart';
+  sorted.forEach((record, index) => {
+    const files = buildCoverage(sorted.slice(0, index + 1));
+    const covered = files.reduce((sum, file) => sum + file.covered, 0);
+    const total = inventoryTotal || files.reduce((sum, file) => sum + file.total, 0);
+    const item = document.createElement('div'); item.className = 'trend-item';
+    const label = document.createElement('button'); label.className = 'trend-label'; label.type = 'button'; label.textContent = record.testName || 'Untitled action';
+    label.title = 'Jump to this History entry';
+    label.addEventListener('click', () => {
+      const target = document.querySelector(`tr[data-job-id="${CSS.escape(String(record.jobId || ''))}"]`);
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    const bar = document.createElement('div'); bar.className = 'trend-bar';
+    const fill = document.createElement('div'); fill.className = 'trend-fill'; fill.style.width = `${Math.min(percentNumber(covered, total), 100)}%`;
+    const value = document.createElement('span'); value.className = 'trend-value'; value.textContent = `${covered} / ${total} (${getCoveragePercent(covered, total)})`;
+    bar.appendChild(fill); item.append(label, bar, value); chart.appendChild(item);
+  });
+  container.append(heading, note, chart);
+}
+
+function getExecutedFunctionSet(record) {
+  const functions = new Map();
+  buildCoverage([record]).forEach((file) => file.functions.filter((fn) => fn.covered).forEach((fn) => {
+    functions.set(getCoverageFunctionKey(file.url, fn), fn);
+  }));
+  return functions;
+}
+
+function renderActionComparison(container, records) {
+  container.replaceChildren();
+  const actions = uniqueActionRecords(records);
+  if (actions.length < 2) return;
+  const heading = document.createElement('h3'); heading.className = 'comparison-heading'; heading.textContent = 'Action Comparison';
+  const note = document.createElement('p'); note.className = 'comparison-note'; note.textContent = 'Compare executed functions between two action scenarios.';
+  const controls = document.createElement('div'); controls.className = 'comparison-controls';
+  const firstSelect = document.createElement('select'); const secondSelect = document.createElement('select');
+  [firstSelect, secondSelect].forEach((select) => actions.forEach((record) => select.add(new Option(record.testName || 'Untitled action', record.jobId))));
+  firstSelect.value = actions[0].jobId; secondSelect.value = actions[1].jobId;
+  const result = document.createElement('div'); result.className = 'comparison-result';
+  const update = () => {
+    const first = actions.find((record) => record.jobId === firstSelect.value) || actions[0];
+    const second = actions.find((record) => record.jobId === secondSelect.value) || actions[1];
+    const firstFunctions = getExecutedFunctionSet(first); const secondFunctions = getExecutedFunctionSet(second);
+    const sharedKeys = [...firstFunctions.keys()].filter((key) => secondFunctions.has(key));
+    const firstUniqueKeys = [...firstFunctions.keys()].filter((key) => !secondFunctions.has(key));
+    const secondUniqueKeys = [...secondFunctions.keys()].filter((key) => !firstFunctions.has(key));
+    result.replaceChildren();
+    const summary = document.createElement('p'); summary.textContent = `${first.testName || 'First action'}: ${firstFunctions.size} executed (${firstUniqueKeys.length} unique) · ${second.testName || 'Second action'}: ${secondFunctions.size} executed (${secondUniqueKeys.length} unique) · Shared: ${sharedKeys.length}`; result.appendChild(summary);
+    const addGroup = (title, keys, source) => {
+      const details = document.createElement('details'); const groupSummary = document.createElement('summary'); groupSummary.textContent = `${title} (${keys.length})`; details.appendChild(groupSummary);
+      const list = document.createElement('ul'); list.className = 'comparison-function-list';
+      keys.sort().forEach((key) => { const item = document.createElement('li'); const fn = source.get(key); item.textContent = `${fn.name}${fn.location ? ` (line ${getLineNumber(fn.location)})` : ''}`; list.appendChild(item); });
+      details.appendChild(list); result.appendChild(details);
+    };
+    addGroup(`${first.testName || 'First action'} only`, firstUniqueKeys, firstFunctions);
+    addGroup(`${second.testName || 'Second action'} only`, secondUniqueKeys, secondFunctions);
+    addGroup('Shared functions', sharedKeys, firstFunctions);
+  };
+  firstSelect.addEventListener('change', update); secondSelect.addEventListener('change', update); update();
+  controls.append(firstSelect, secondSelect); container.append(heading, note, controls, result);
+}
+
+function renderDashboard(records = getFilteredHistory(), actionRecord = null) {
+  const primaryRecord = actionRecord || sortHistoryRecords(records)[0] || null;
+  const actionFiles = primaryRecord ? buildCoverage([primaryRecord]) : [];
+  const cumulativeRecords = uniqueActionRecords(records);
+  const cumulativeFiles = buildCoverage(cumulativeRecords);
+  const actionObservedTotal = actionFiles.reduce((sum, file) => sum + file.total, 0);
+  const cumulativeObservedTotal = cumulativeFiles.reduce((sum, file) => sum + file.total, 0);
+  const inventoryTotal = getDeltaInventoryTotal();
+  const actionTotal = inventoryTotal || actionObservedTotal;
+  const actionCovered = Math.min(actionFiles.reduce((sum, file) => sum + file.covered, 0), actionTotal);
+  const actionPct = percentNumber(actionCovered, actionTotal);
+  const cumulativeTotal = inventoryTotal || cumulativeObservedTotal;
+  const cumulativeCovered = Math.min(cumulativeFiles.reduce((sum, file) => sum + file.covered, 0), cumulativeTotal);
+  const cumulativePct = percentNumber(cumulativeCovered, cumulativeTotal);
+  const actionName = primaryRecord?.testName || 'Latest action';
   const cardData = [
-    ['Overall Coverage', `${pct}%`, `${covered} / ${total} functions`],
-    ['Total Functions', total, inventoryTotal > 0 ? 'Complete Delta inventory' : 'Observed functions'],
-    ['Quality Gate', pct >= QUALITY_GATE_PERCENT ? 'Passing' : 'Failing', `${QUALITY_GATE_PERCENT}% threshold`],
-    ['Recorded Tests', records.length, 'Tests in selected scope'],
+    [`Current Action: ${actionName}`, `${actionPct}%`, `${actionCovered} executed / ${actionTotal} total Delta functions`],
+    ['Total Delta Functions', actionTotal, inventoryTotal ? 'Complete Delta inventory' : 'Observed functions'],
+    ['Cumulative Coverage', `${cumulativePct}%`, `${cumulativeCovered} unique functions / ${cumulativeTotal} inventory functions`],
+    ['Recorded Actions', cumulativeRecords.length, 'Unique action scenarios in selected scope'],
   ];
   dashboardCards.replaceChildren();
   cardData.forEach(([label, value, note], index) => {
-    const card = document.createElement('div'); card.className = 'dashboard-card';
-    const big = document.createElement('div'); big.className = label === 'Quality Gate' ? `gate-value ${pct >= QUALITY_GATE_PERCENT ? 'passing' : 'failing'}` : 'card-value'; big.textContent = value;
+    const card = document.createElement('div'); card.className = `dashboard-card${index === 0 ? ' primary-coverage-card' : ''}`;
+    const big = document.createElement('div'); big.className = 'card-value'; big.textContent = value;
     const title = document.createElement('div'); title.className = 'card-label'; title.textContent = label;
     const detail = document.createElement('div'); detail.className = 'card-note'; detail.textContent = note;
     card.append(big, title, detail);
     dashboardCards.appendChild(card);
   });
-  renderFilePanel(overallFiles, files);
+  renderCoverageTrend(coverageTrend, records, inventoryTotal);
+  renderActionComparison(actionComparison, records);
+  renderFilePanel(overallFiles, actionFiles);
+  dashboardScopeNote.textContent = primaryRecord
+    ? `Primary coverage is for the latest action (${actionName}) against the complete Delta inventory. Cumulative coverage is shown separately.`
+    : 'Coverage uses the complete function inventory from the latest Coverage Delta check; recorded actions determine which functions were executed.';
+  viewOverallBtn.textContent = primaryRecord ? 'Current Action Coverage' : 'Overall Coverage';
   viewOverallBtn.setAttribute('aria-selected', 'true');
 }
 
 function createDetailsRow(record) {
-  const row = document.createElement('tr'); const cell = document.createElement('td'); cell.colSpan = 10; cell.className = 'details-cell';
+  const row = document.createElement('tr'); const cell = document.createElement('td'); cell.colSpan = 11; cell.className = 'details-cell';
   const details = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = `File Coverage Breakdown (${(record.files || []).length})`;
   const list = document.createElement('div'); list.className = 'file-list';
+  const actionCoverage = getRecordCoverage(record);
+  const actionTotal = getDeltaInventoryTotal() || actionCoverage.total;
+  const recordTime = Date.parse(record.capturedAt || record.stoppedAt || record.startedAt) || 0;
+  const previouslyCovered = new Set();
+  getSiteHistory().filter((candidate) => (Date.parse(candidate.capturedAt || candidate.stoppedAt || candidate.startedAt) || 0) < recordTime).forEach((candidate) => {
+    getExecutedFunctionSet(candidate).forEach((fn, key) => previouslyCovered.add(key));
+  });
+  const actionSummary = document.createElement('div'); actionSummary.className = 'coverage-count';
+  actionSummary.textContent = `Action coverage: ${actionCoverage.covered} executed / ${actionTotal} total Delta functions (${getCoveragePercent(actionCoverage.covered, actionTotal)})`;
+  list.appendChild(actionSummary);
   const interactions = Array.isArray(record.interactions) ? record.interactions : [];
   if (interactions.length) {
     const steps = document.createElement('div'); steps.className = 'recorded-steps';
@@ -608,13 +748,20 @@ function createDetailsRow(record) {
     steps.append(title, entries); list.appendChild(steps);
   }
   (record.files || []).forEach((file) => {
-    const functions = file.functions || []; const rowEl = document.createElement('div'); rowEl.className = 'file-row';
+    const functions = (file.functions || []).map((fn) => ({ ...fn, newlyCovered: Boolean(fn.covered && !previouslyCovered.has(getCoverageFunctionKey(formatFileUrl(file.url), fn))) })); const rowEl = document.createElement('div'); rowEl.className = 'file-row';
     const url = document.createElement('div'); url.className = 'file-url'; url.textContent = formatFileUrl(file.url);
-    const count = document.createElement('div'); count.className = 'coverage-count'; count.textContent = `${Number(file.coveredFunctions || 0)} executed functions`;
-    const pct = document.createElement('div'); pct.className = 'coverage-percent'; pct.textContent = getCoveragePercent(Number(file.coveredFunctions || 0), Number(file.totalFunctions || functions.length));
-    rowEl.append(url, count, pct, createFunctionColumns(functions)); list.appendChild(rowEl);
+    const sourceLink = document.createElement('a'); sourceLink.className = 'source-link'; sourceLink.href = file.url || '#'; sourceLink.target = '_blank'; sourceLink.rel = 'noreferrer'; sourceLink.textContent = 'Open source';
+    if (!file.url) { sourceLink.removeAttribute('href'); sourceLink.setAttribute('aria-disabled', 'true'); }
+    const coveredFunctions = Number(file.coveredFunctions || 0);
+    const count = document.createElement('div'); count.className = 'coverage-count'; count.textContent = `${coveredFunctions} action-level executed functions`;
+    const pct = document.createElement('div'); pct.className = 'coverage-percent'; pct.textContent = getCoveragePercent(coveredFunctions, actionTotal);
+    rowEl.append(url, count, pct, sourceLink, createFunctionColumns(functions)); list.appendChild(rowEl);
   });
   if (!(record.files || []).length) list.textContent = 'No file coverage details saved for this test.';
+  details.addEventListener('toggle', () => {
+    if (details.open) renderDashboard(getFilteredHistory(), record);
+    else renderDashboard(getFilteredHistory());
+  });
   details.append(summary, list); cell.appendChild(details); row.appendChild(cell); return row;
 }
 
@@ -626,14 +773,17 @@ function renderHistory() {
   else populateDeltaBuildOptions(deltaRecords);
   const filtered = getFilteredHistory(siteHistory);
   const sorted = sortHistoryRecords(filtered);
+  const actionRunCounts = getActionRunCounts(siteHistory);
   historyBody.replaceChildren(); emptyState.style.display = sorted.length ? 'none' : 'block'; exportBtn.disabled = !siteHistory.length; clearBtn.disabled = !siteHistory.length;
   summaryText.textContent = historySiteOrigin && historyEnvironment
-    ? `${filtered.length} of ${siteHistory.length} ${historyJobId ? 'action session' : 'tests'} shown for ${historyEnvironment} at ${historySiteOrigin}.`
+    ? `${filtered.length} of ${siteHistory.length} ${historyJobId ? 'action session' : 'actions'} shown for ${historyEnvironment} at ${historySiteOrigin}. Cumulative dashboard coverage is deduplicated across these actions; each row shows action-level coverage.`
     : 'Open History from a website tab to view its environment-scoped coverage history.';
   sorted.forEach((record) => {
-    const { covered, total } = getRecordCoverage(record);
-    const row = document.createElement('tr'); const coverage = document.createElement('td'); coverage.className = 'row-coverage'; coverage.append(createBar(covered, total), document.createTextNode(getCoveragePercent(covered, total)));
+    const { covered, total: observedTotal } = getRecordCoverage(record);
+    const total = getDeltaInventoryTotal() || observedTotal;
+    const row = document.createElement('tr'); row.dataset.jobId = String(record.jobId || ''); const coverage = document.createElement('td'); coverage.className = 'row-coverage'; const status = getActionCoverageStatus(record); coverage.append(createBar(covered, total), document.createTextNode(`${getCoveragePercent(covered, total)} · ${status}`));
     const testName = record.testName || 'Untitled test';
+    const actionNameKey = String(testName).trim().toLowerCase();
     const deleteButton = document.createElement('button');
     deleteButton.type = 'button'; deleteButton.className = 'delete-test-btn';
     deleteButton.title = `Remove ${testName}`; deleteButton.setAttribute('aria-label', `Remove ${testName}`);
@@ -648,6 +798,7 @@ function renderHistory() {
     const stoppedAt = record.stoppedAt || record.capturedAt;
     row.append(
       createCell(testName, 'test-name'),
+      createCell(`${actionRunCounts.get(actionNameKey) || 1} run${actionRunCounts.get(actionNameKey) === 1 ? '' : 's'}`, 'run-count'),
       createCell(record.testDescription || '', 'description'),
       createCell(record.testSuite || 'Manual'),
       createCell(record.environment || 'Unspecified'),
@@ -788,7 +939,6 @@ function exportHistory() {
     { text: 'Dashboard Summary', size: 14, bold: true, gap: 18 },
     { text: `Overall Coverage: ${coveragePercent}% (${coveredFunctions} / ${totalFunctions} functions)`, size: 11, gap: 15 },
     { text: `Total Functions: ${totalFunctions}`, size: 11, gap: 15 },
-    { text: `Quality Gate Status: ${coveragePercent >= QUALITY_GATE_PERCENT ? 'Passing' : 'Failing'} (${QUALITY_GATE_PERCENT}% threshold)`, size: 11, gap: 24 },
     { text: `Website: ${historySiteOrigin || 'Unknown'}`, size: 9, gap: 18 },
     { text: `Selected Tests (${siteHistory.length})`, size: 14, bold: true, gap: 18 },
   ];
@@ -823,6 +973,7 @@ function exportHistory() {
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
 async function clearHistory() {
   const siteHistory = getSiteHistory();
   if (!siteHistory.length || !window.confirm(`Clear CoverageCapture history for ${historySiteOrigin}? This cannot be undone.`)) return;
@@ -837,6 +988,15 @@ sortSelect.addEventListener('change', () => { selectedSort = sortSelect.value; r
 testSuiteFilter.addEventListener('change', () => { selectedFilters.testSuite = testSuiteFilter.value; renderHistory(); });
 environmentFilter.addEventListener('change', () => { selectedFilters.environment = environmentFilter.value; renderHistory(); });
 buildVersionFilter.addEventListener('change', () => { selectedFilters.buildVersion = buildVersionFilter.value; renderHistory(); });
+coverageStatusFilter.addEventListener('change', () => { selectedCoverageStatus = coverageStatusFilter.value; renderHistory(); });
+resetFiltersBtn.addEventListener('click', () => {
+  searchInput.value = '';
+  sortSelect.value = 'date-desc';
+  selectedSort = 'date-desc';
+  selectedFilters = { testSuite: '', environment: historyEnvironment || '', buildVersion: '' };
+  selectedCoverageStatus = '';
+  renderHistory();
+});
 baselineBuildSelect.addEventListener('change', () => { selectedBaselineBuild = baselineBuildSelect.value; renderCoverageDelta(getDeltaScopeHistory()); });
 comparisonBuildSelect.addEventListener('change', () => { selectedComparisonBuild = comparisonBuildSelect.value; renderCoverageDelta(getDeltaScopeHistory()); });
 automaticDeltaBtn.addEventListener('click', () => { deltaViewMode = 'automatic'; renderHistory(); });
@@ -875,4 +1035,3 @@ viewHistoryBtn.addEventListener('click', () => {
   window.open(chrome.runtime.getURL(`history.html${query}`), '_blank');
 });
 exportBtn.addEventListener('click', exportHistory); clearBtn.addEventListener('click', clearHistory); viewOverallBtn.addEventListener('click', showOverall); loadHistory();
-if (historySiteOrigin) window.setInterval(() => loadHistory(), 5000);

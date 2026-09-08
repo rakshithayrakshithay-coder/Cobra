@@ -10,6 +10,7 @@ const runDeltaBtn = document.getElementById('runDeltaBtn');
 const bridgeServerUrl = 'http://localhost:4000';
 
 let activeJobId = null;
+let deltaInventoryTotal = null;
 
 function setStatus(text, kind) {
   statusDiv.textContent = text;
@@ -17,7 +18,7 @@ function setStatus(text, kind) {
 }
 
 function getCoveragePercent(coveredFunctions, totalFunctions) {
-  return totalFunctions ? `${Math.round((coveredFunctions / totalFunctions) * 100)}%` : '0%';
+  return totalFunctions ? `${Math.round((coveredFunctions / totalFunctions) * 1000) / 10}%` : '0%';
 }
 
 function getExecutedFunctions(functions) {
@@ -43,6 +44,19 @@ function getSiteOrigin(url) {
   }
 }
 
+async function loadDeltaInventory(siteOrigin, environment) {
+  if (!siteOrigin || !environment) return;
+  try {
+    const response = await fetch(`${bridgeServerUrl}/delta-analysis?origin=${encodeURIComponent(siteOrigin)}&environment=${encodeURIComponent(environment)}`);
+    if (!response.ok) return;
+    const result = await response.json();
+    const total = Number(result?.delta?.inventory?.currentFunctions);
+    deltaInventoryTotal = Number.isFinite(total) && total > 0 ? total : null;
+  } catch {
+    deltaInventoryTotal = null;
+  }
+}
+
 async function clearLatestRecord() {
   await chrome.storage.local.remove('latestCoverageResult');
   resultsDiv.replaceChildren();
@@ -51,12 +65,15 @@ async function clearLatestRecord() {
 
 function renderResults(record) {
   const files = Array.isArray(record?.files) ? record.files : [];
+  const actionCovered = files.reduce((sum, file) => sum + Number(file.coveredFunctions || 0), 0);
+  const observedTotal = files.reduce((sum, file) => sum + Number(file.totalFunctions || (file.functions || []).length), 0);
+  const actionTotal = deltaInventoryTotal || observedTotal;
   resultsDiv.replaceChildren();
   const header = document.createElement('div');
   header.className = 'result-header';
   const heading = document.createElement('h3');
   heading.className = 'result-heading';
-  heading.textContent = `Latest Coverage Breakdown — ${record?.testName || 'Untitled scenario'}`;
+  heading.textContent = `Action Coverage — ${record?.testName || 'Untitled scenario'}`;
   const closeButton = document.createElement('button');
   closeButton.className = 'close-results';
   closeButton.type = 'button';
@@ -66,6 +83,11 @@ function renderResults(record) {
   closeButton.addEventListener('click', () => clearLatestRecord().catch((error) => setStatus(`Failed to clear latest coverage: ${error.message}`, 'error')));
   header.append(heading, closeButton);
   resultsDiv.appendChild(header);
+
+  const summary = document.createElement('div');
+  summary.className = 'result-item action-coverage-summary';
+  summary.textContent = `${actionCovered} action-level executed functions / ${actionTotal} total Delta functions (${getCoveragePercent(actionCovered, actionTotal)} coverage). Previous actions are not included.`;
+  resultsDiv.appendChild(summary);
 
   const interactions = Array.isArray(record?.interactions) ? record.interactions : [];
   if (interactions.length) {
@@ -94,7 +116,6 @@ function renderResults(record) {
     files.forEach((file) => {
       const executedFunctions = getExecutedFunctions(file.functions);
       const coveredFunctions = Number(file.coveredFunctions ?? executedFunctions.length);
-      const totalFunctions = Number(file.totalFunctions ?? executedFunctions.length);
       const fileRow = document.createElement('div');
       fileRow.className = 'result-item file-row';
       const fileUrl = document.createElement('div');
@@ -102,7 +123,7 @@ function renderResults(record) {
       fileUrl.textContent = formatFileUrl(file.url);
       const metrics = document.createElement('div');
       metrics.className = 'coverage-metrics';
-      metrics.textContent = `${coveredFunctions} executed functions · ${getCoveragePercent(coveredFunctions, totalFunctions)} coverage`;
+      metrics.textContent = `${coveredFunctions} action-level executed functions · ${getCoveragePercent(coveredFunctions, actionTotal)} of total Delta functions`;
       fileRow.append(fileUrl, metrics);
       if (executedFunctions.length) {
         const functionList = document.createElement('div');
@@ -184,7 +205,10 @@ async function refreshDetectedEnvironment() {
 
 (async () => {
   const { latestCoverageResult } = await chrome.storage.local.get('latestCoverageResult');
-  if (latestCoverageResult) renderResults(latestCoverageResult);
+  if (latestCoverageResult) {
+    await loadDeltaInventory(latestCoverageResult.siteOrigin, latestCoverageResult.environment);
+    renderResults(latestCoverageResult);
+  }
   try {
     await restoreActiveSession();
     if (!activeJobId) await refreshDetectedEnvironment();
@@ -266,6 +290,7 @@ stopBtn.addEventListener('click', async () => {
     activeJobId = null;
     setRecordingControls(false);
     setStatus(`Done. Captured coverage for "${record.testName}".`, 'done');
+    await loadDeltaInventory(record.siteOrigin, record.environment);
     renderResults(record);
   } catch (error) {
     setRecordingControls(false);
@@ -277,10 +302,7 @@ document.getElementById('historyBtn').addEventListener('click', async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const siteOrigin = getSiteOrigin(tab?.url);
   const environment = await detectEnvironment(tab?.id);
-  const { latestCoverageResult } = await chrome.storage.local.get('latestCoverageResult');
-  const session = latestCoverageResult?.siteOrigin === siteOrigin && latestCoverageResult?.environment === environment
-    ? `&jobId=${encodeURIComponent(latestCoverageResult.jobId || '')}` : '';
-  const query = siteOrigin ? `?origin=${encodeURIComponent(siteOrigin)}&environment=${encodeURIComponent(environment)}${session}` : '';
+  const query = siteOrigin ? `?origin=${encodeURIComponent(siteOrigin)}&environment=${encodeURIComponent(environment)}` : '';
   chrome.tabs.create({ url: chrome.runtime.getURL(`history.html${query}`) });
 });
 
