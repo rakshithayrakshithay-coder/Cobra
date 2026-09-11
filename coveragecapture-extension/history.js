@@ -1,5 +1,5 @@
 const STORAGE_KEY = 'coverageHistory';
-const QUALITY_GATE_PERCENT = 70;
+const COVERAGE_BAR_GOOD_PERCENT = 70;
 const BRIDGE_SERVER_URL = 'http://localhost:4000';
 
 const searchInput = document.getElementById('searchInput');
@@ -17,8 +17,6 @@ const historyBody = document.getElementById('historyBody');
 const emptyState = document.getElementById('emptyState');
 const dashboardCards = document.getElementById('dashboardCards');
 const dashboardScopeNote = document.getElementById('dashboardScopeNote');
-const coverageTrend = document.getElementById('coverageTrend');
-const actionComparison = document.getElementById('actionComparison');
 const overallFiles = document.getElementById('overallFiles');
 const viewOverallBtn = document.getElementById('viewOverallBtn');
 const deltaResults = document.getElementById('deltaResults');
@@ -208,14 +206,6 @@ function uniqueActionRecords(records) {
   return [...latestByAction.values()];
 }
 
-function getActionRunCounts(records) {
-  return records.reduce((counts, record) => {
-    const name = String(record.testName || 'Untitled test').trim().toLowerCase();
-    counts.set(name, (counts.get(name) || 0) + 1);
-    return counts;
-  }, new Map());
-}
-
 function formatFileUrl(url) {
   if (!url) return 'Unknown file';
   try {
@@ -395,50 +385,20 @@ function renderBuildFunctionSnapshot(label, buildVersion, snapshot) {
 
 function renderUploadedDelta(deltaAnalysis, records = getSiteHistory()) {
   const delta = deltaAnalysis?.delta || {};
-  const added = Array.isArray(delta.functionsAdded) ? delta.functionsAdded : [];
-  const modified = Array.isArray(delta.functionsModified) ? delta.functionsModified : [];
-  const changedExecuted = Array.isArray(delta.newFunctionsExecuted) ? delta.newFunctionsExecuted : [];
-  const changedUnexecuted = Array.isArray(delta.newFunctionsUntested) ? delta.newFunctionsUntested : [];
   const cumulative = buildCoverage(records);
   const executedUnique = cumulative.reduce((sum, file) => sum + file.covered, 0);
   const inventory = delta.inventory || {};
   const currentTotal = Number(inventory.currentFunctions) || cumulative.reduce((sum, file) => sum + file.total, 0);
   const executed = Math.min(executedUnique, currentTotal);
   const unexecuted = Math.max(currentTotal - executed, 0);
-  const changed = new Map([...added, ...modified].map((fn) => [fn.id, fn]));
-  const changedExecutedCount = [...changed.keys()].filter((id) => changedExecuted.some((fn) => fn.id === id)).length;
-  const changedUntestedCount = changed.size - changedExecutedCount;
   const overview = document.createElement('div'); overview.className = 'delta-summary';
-  [[currentTotal, 'Total inventory functions', ''], [executed, 'Cumulative executed functions', 'executed'], [unexecuted, 'Cumulative unexecuted functions', 'untested'], [changed.size, 'Changed functions', 'modified'], [changedExecutedCount, 'Changed functions covered', 'executed'], [changedUntestedCount, 'Changed functions untested', 'untested']].forEach(([value, label, tone]) => {
+  [[currentTotal, 'Total inventory functions', ''], [executed, 'Cumulative executed functions', 'executed'], [unexecuted, 'Cumulative unexecuted functions', 'untested']].forEach(([value, label, tone]) => {
     const metric = document.createElement('div'); metric.className = `delta-metric ${tone}`;
     const big = document.createElement('div'); big.className = 'delta-value'; big.textContent = value;
     const title = document.createElement('div'); title.className = 'delta-label'; title.textContent = label;
     metric.append(big, title); overview.appendChild(metric);
   });
   deltaResults.replaceChildren(overview);
-  const cumulativeNote = document.createElement('p'); cumulativeNote.className = 'delta-note';
-  cumulativeNote.textContent = `${executed} unique functions executed across the selected action sessions; ${unexecuted} remain unexecuted in the current inventory.`;
-  deltaResults.append(cumulativeNote);
-  if (added.length || modified.length) {
-    const heading = document.createElement('p'); heading.className = 'delta-note'; heading.textContent = 'Only functions added or modified since the saved baseline:';
-    const changedIds = new Set([...changedExecuted, ...changedUnexecuted].map((fn) => fn.id));
-    const changed = [...added, ...modified].map((fn) => ({ ...fn, covered: !changedIds.has(fn.id) || changedExecuted.some((entry) => entry.id === fn.id), location: fn.line ? `line ${fn.line}` : '' }));
-    deltaResults.append(heading, renderDeltaFunctionList(changed));
-  } else {
-    const note = document.createElement('p'); note.className = 'delta-note'; note.textContent = 'No new or modified functions detected since the saved baseline.'; deltaResults.append(note);
-  }
-  const cycles = Array.isArray(deltaAnalysis.testingCycles) ? deltaAnalysis.testingCycles : [];
-  if (cycles.length) {
-    const current = cycles.find((cycle) => cycle.status === 'pending') || null;
-    const history = cycles.filter((cycle) => cycle.status === 'completed');
-    deltaResults.append(renderTestingCycle(current, 'Current Testing Cycle'));
-    if (history.length) {
-      const heading = document.createElement('h3'); heading.className = 'testing-history-heading'; heading.textContent = 'Testing History';
-      const list = document.createElement('div'); list.className = 'testing-history';
-      history.forEach((cycle) => list.append(renderTestingCycle(cycle, `Cycle ${cycle.id}`)));
-      deltaResults.append(heading, list);
-    }
-  }
 }
 
 function renderTestingCycle(cycle, title) {
@@ -541,7 +501,7 @@ function createBar(covered, total) {
   const wrap = document.createElement('div');
   const bar = document.createElement('span');
   const value = percentNumber(covered, total);
-  wrap.className = 'coverage-bar'; bar.className = `coverage-fill ${value >= QUALITY_GATE_PERCENT ? 'good' : value >= 40 ? 'warning' : 'poor'}`;
+  wrap.className = 'coverage-bar'; bar.className = `coverage-fill ${value >= COVERAGE_BAR_GOOD_PERCENT ? 'good' : value >= 40 ? 'warning' : 'poor'}`;
   bar.style.width = `${value}%`; wrap.appendChild(bar); return wrap;
 }
 
@@ -611,36 +571,8 @@ function renderFilePanel(container, files, untestedOnly = false) {
     const metric = document.createElement('span');
     metric.textContent = `${file.covered} / ${file.total} functions (${file.percent}%)`;
     summary.append(title, metric);
-    const badge = document.createElement('span'); badge.className = `badge ${file.percent >= QUALITY_GATE_PERCENT ? 'passing' : 'failing'}`;
-    badge.textContent = file.percent >= QUALITY_GATE_PERCENT ? 'Passing' : 'Failing'; summary.appendChild(badge);
     details.append(summary, createFunctionList(file.functions, false, true)); container.appendChild(details);
   });
-}
-
-function renderCoverageTrend(container, records, inventoryTotal) {
-  container.replaceChildren();
-  const sorted = [...records].sort((first, second) => new Date(first.capturedAt || first.stoppedAt || first.startedAt).getTime() - new Date(second.capturedAt || second.stoppedAt || second.startedAt).getTime());
-  if (!sorted.length) return;
-  const heading = document.createElement('h3'); heading.className = 'trend-heading'; heading.textContent = 'Coverage Trend';
-  const note = document.createElement('p'); note.className = 'trend-note'; note.textContent = 'Cumulative unique functions covered after each recorded action.';
-  const chart = document.createElement('div'); chart.className = 'coverage-trend-chart';
-  sorted.forEach((record, index) => {
-    const files = buildCoverage(sorted.slice(0, index + 1));
-    const covered = files.reduce((sum, file) => sum + file.covered, 0);
-    const total = inventoryTotal || files.reduce((sum, file) => sum + file.total, 0);
-    const item = document.createElement('div'); item.className = 'trend-item';
-    const label = document.createElement('button'); label.className = 'trend-label'; label.type = 'button'; label.textContent = record.testName || 'Untitled action';
-    label.title = 'Jump to this History entry';
-    label.addEventListener('click', () => {
-      const target = document.querySelector(`tr[data-job-id="${CSS.escape(String(record.jobId || ''))}"]`);
-      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    });
-    const bar = document.createElement('div'); bar.className = 'trend-bar';
-    const fill = document.createElement('div'); fill.className = 'trend-fill'; fill.style.width = `${Math.min(percentNumber(covered, total), 100)}%`;
-    const value = document.createElement('span'); value.className = 'trend-value'; value.textContent = `${covered} / ${total} (${getCoveragePercent(covered, total)})`;
-    bar.appendChild(fill); item.append(label, bar, value); chart.appendChild(item);
-  });
-  container.append(heading, note, chart);
 }
 
 function getExecutedFunctionSet(record) {
@@ -649,40 +581,6 @@ function getExecutedFunctionSet(record) {
     functions.set(getCoverageFunctionKey(file.url, fn), fn);
   }));
   return functions;
-}
-
-function renderActionComparison(container, records) {
-  container.replaceChildren();
-  const actions = uniqueActionRecords(records);
-  if (actions.length < 2) return;
-  const heading = document.createElement('h3'); heading.className = 'comparison-heading'; heading.textContent = 'Action Comparison';
-  const note = document.createElement('p'); note.className = 'comparison-note'; note.textContent = 'Compare executed functions between two action scenarios.';
-  const controls = document.createElement('div'); controls.className = 'comparison-controls';
-  const firstSelect = document.createElement('select'); const secondSelect = document.createElement('select');
-  [firstSelect, secondSelect].forEach((select) => actions.forEach((record) => select.add(new Option(record.testName || 'Untitled action', record.jobId))));
-  firstSelect.value = actions[0].jobId; secondSelect.value = actions[1].jobId;
-  const result = document.createElement('div'); result.className = 'comparison-result';
-  const update = () => {
-    const first = actions.find((record) => record.jobId === firstSelect.value) || actions[0];
-    const second = actions.find((record) => record.jobId === secondSelect.value) || actions[1];
-    const firstFunctions = getExecutedFunctionSet(first); const secondFunctions = getExecutedFunctionSet(second);
-    const sharedKeys = [...firstFunctions.keys()].filter((key) => secondFunctions.has(key));
-    const firstUniqueKeys = [...firstFunctions.keys()].filter((key) => !secondFunctions.has(key));
-    const secondUniqueKeys = [...secondFunctions.keys()].filter((key) => !firstFunctions.has(key));
-    result.replaceChildren();
-    const summary = document.createElement('p'); summary.textContent = `${first.testName || 'First action'}: ${firstFunctions.size} executed (${firstUniqueKeys.length} unique) · ${second.testName || 'Second action'}: ${secondFunctions.size} executed (${secondUniqueKeys.length} unique) · Shared: ${sharedKeys.length}`; result.appendChild(summary);
-    const addGroup = (title, keys, source) => {
-      const details = document.createElement('details'); const groupSummary = document.createElement('summary'); groupSummary.textContent = `${title} (${keys.length})`; details.appendChild(groupSummary);
-      const list = document.createElement('ul'); list.className = 'comparison-function-list';
-      keys.sort().forEach((key) => { const item = document.createElement('li'); const fn = source.get(key); item.textContent = `${fn.name}${fn.location ? ` (line ${getLineNumber(fn.location)})` : ''}`; list.appendChild(item); });
-      details.appendChild(list); result.appendChild(details);
-    };
-    addGroup(`${first.testName || 'First action'} only`, firstUniqueKeys, firstFunctions);
-    addGroup(`${second.testName || 'Second action'} only`, secondUniqueKeys, secondFunctions);
-    addGroup('Shared functions', sharedKeys, firstFunctions);
-  };
-  firstSelect.addEventListener('change', update); secondSelect.addEventListener('change', update); update();
-  controls.append(firstSelect, secondSelect); container.append(heading, note, controls, result);
 }
 
 function renderDashboard(records = getFilteredHistory(), actionRecord = null) {
@@ -715,8 +613,6 @@ function renderDashboard(records = getFilteredHistory(), actionRecord = null) {
     card.append(big, title, detail);
     dashboardCards.appendChild(card);
   });
-  renderCoverageTrend(coverageTrend, records, inventoryTotal);
-  renderActionComparison(actionComparison, records);
   renderFilePanel(overallFiles, actionFiles);
   dashboardScopeNote.textContent = primaryRecord
     ? `Primary coverage is for the latest action (${actionName}) against the complete Delta inventory. Cumulative coverage is shown separately.`
@@ -726,7 +622,7 @@ function renderDashboard(records = getFilteredHistory(), actionRecord = null) {
 }
 
 function createDetailsRow(record) {
-  const row = document.createElement('tr'); const cell = document.createElement('td'); cell.colSpan = 11; cell.className = 'details-cell';
+  const row = document.createElement('tr'); const cell = document.createElement('td'); cell.colSpan = 10; cell.className = 'details-cell';
   const details = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = `File Coverage Breakdown (${(record.files || []).length})`;
   const list = document.createElement('div'); list.className = 'file-list';
   const actionCoverage = getRecordCoverage(record);
@@ -750,12 +646,10 @@ function createDetailsRow(record) {
   (record.files || []).forEach((file) => {
     const functions = (file.functions || []).map((fn) => ({ ...fn, newlyCovered: Boolean(fn.covered && !previouslyCovered.has(getCoverageFunctionKey(formatFileUrl(file.url), fn))) })); const rowEl = document.createElement('div'); rowEl.className = 'file-row';
     const url = document.createElement('div'); url.className = 'file-url'; url.textContent = formatFileUrl(file.url);
-    const sourceLink = document.createElement('a'); sourceLink.className = 'source-link'; sourceLink.href = file.url || '#'; sourceLink.target = '_blank'; sourceLink.rel = 'noreferrer'; sourceLink.textContent = 'Open source';
-    if (!file.url) { sourceLink.removeAttribute('href'); sourceLink.setAttribute('aria-disabled', 'true'); }
     const coveredFunctions = Number(file.coveredFunctions || 0);
     const count = document.createElement('div'); count.className = 'coverage-count'; count.textContent = `${coveredFunctions} action-level executed functions`;
     const pct = document.createElement('div'); pct.className = 'coverage-percent'; pct.textContent = getCoveragePercent(coveredFunctions, actionTotal);
-    rowEl.append(url, count, pct, sourceLink, createFunctionColumns(functions)); list.appendChild(rowEl);
+    rowEl.append(url, count, pct, createFunctionColumns(functions)); list.appendChild(rowEl);
   });
   if (!(record.files || []).length) list.textContent = 'No file coverage details saved for this test.';
   details.addEventListener('toggle', () => {
@@ -773,7 +667,6 @@ function renderHistory() {
   else populateDeltaBuildOptions(deltaRecords);
   const filtered = getFilteredHistory(siteHistory);
   const sorted = sortHistoryRecords(filtered);
-  const actionRunCounts = getActionRunCounts(siteHistory);
   historyBody.replaceChildren(); emptyState.style.display = sorted.length ? 'none' : 'block'; exportBtn.disabled = !siteHistory.length; clearBtn.disabled = !siteHistory.length;
   summaryText.textContent = historySiteOrigin && historyEnvironment
     ? `${filtered.length} of ${siteHistory.length} ${historyJobId ? 'action session' : 'actions'} shown for ${historyEnvironment} at ${historySiteOrigin}. Cumulative dashboard coverage is deduplicated across these actions; each row shows action-level coverage.`
@@ -783,7 +676,6 @@ function renderHistory() {
     const total = getDeltaInventoryTotal() || observedTotal;
     const row = document.createElement('tr'); row.dataset.jobId = String(record.jobId || ''); const coverage = document.createElement('td'); coverage.className = 'row-coverage'; const status = getActionCoverageStatus(record); coverage.append(createBar(covered, total), document.createTextNode(`${getCoveragePercent(covered, total)} · ${status}`));
     const testName = record.testName || 'Untitled test';
-    const actionNameKey = String(testName).trim().toLowerCase();
     const deleteButton = document.createElement('button');
     deleteButton.type = 'button'; deleteButton.className = 'delete-test-btn';
     deleteButton.title = `Remove ${testName}`; deleteButton.setAttribute('aria-label', `Remove ${testName}`);
@@ -798,7 +690,6 @@ function renderHistory() {
     const stoppedAt = record.stoppedAt || record.capturedAt;
     row.append(
       createCell(testName, 'test-name'),
-      createCell(`${actionRunCounts.get(actionNameKey) || 1} run${actionRunCounts.get(actionNameKey) === 1 ? '' : 's'}`, 'run-count'),
       createCell(record.testDescription || '', 'description'),
       createCell(record.testSuite || 'Manual'),
       createCell(record.environment || 'Unspecified'),
